@@ -248,7 +248,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.21 · 2026-09-28';
+const APP_VERSION = 'ver.22 · 2026-09-28';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -310,6 +310,12 @@ function daysUntil(dateStr) {
   const today = new Date(todayStr() + 'T00:00:00');
   const target = new Date(dateStr + 'T00:00:00');
   return Math.round((target - today) / 86400000);
+}
+// daysUntil과 같은 계산인데 'YYYY-MM-DD' 문자열이 아니라 Date 객체(토큰 만료 시각 등)를 받을 때 씀
+function daysUntilDate(date) {
+  if (!date) return null;
+  const today = new Date(todayStr() + 'T00:00:00');
+  return Math.round((date - today) / 86400000);
 }
 
 // Date 객체 → 'YYYY-MM-DD' (달력에서 날짜별로 기록을 묶을 때 사용)
@@ -383,6 +389,18 @@ function base64ToUtf8(b64) {
   return new TextDecoder().decode(bytes);
 }
 
+// fine-grained PAT(또는 GitHub App 토큰)으로 요청하면 GitHub이 모든 응답에
+// "이 토큰이 언제 만료되는지"를 헤더로 같이 돌려줌 — 응답이 올 때마다 여기 최신값을 기억해뒀다가
+// 설정 탭에서 "토큰 만료까지 며칠" 형태로 보여주는 데 씀. classic 토큰이면 헤더 자체가 안 옴(=계속 null).
+let ghTokenExpirationRaw = null;
+function parseGhTokenExpiration(raw) {
+  if (!raw) return null;
+  // 형식 예: "2026-12-01 00:00:00 UTC"
+  const iso = raw.trim().replace(' ', 'T').replace(/ UTC$/, 'Z');
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 async function ghFetch(cfg, path, opts = {}) {
   const url = `${GH_API}/repos/${cfg.owner}/${cfg.repo}/contents/${path}${opts.query || ''}`;
   // 네트워크가 불안정할 때 요청이 응답도 실패도 없이 무한정 걸려있는 걸 막기 위한 타임아웃
@@ -400,10 +418,16 @@ async function ghFetch(cfg, path, opts = {}) {
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,
     });
+    const expHeader = res.headers && res.headers.get && res.headers.get('github-authentication-token-expiration');
+    if (expHeader) ghTokenExpirationRaw = expHeader;
     // 토큰이 만료·무효화되면 모든 요청이 401로 실패하는데, 그냥 두면 호출한 곳마다 제각각
     // "저장 실패", "읽기 실패" 같은 뭉뚱그린 메시지만 뜨고 진짜 원인(토큰 문제)은 안 보임.
     // 여기 한 곳에서 잡아서 모든 요청에 공통으로 명확한 안내가 뜨게 함.
-    if (res.status === 401) throw new Error('GitHub 토큰이 만료됐거나 더 이상 유효하지 않아요. 설정 탭 → 계정 연결에서 토큰을 다시 확인해주세요.');
+    if (res.status === 401) {
+      const expiredAt = parseGhTokenExpiration(expHeader);
+      const expiredHint = expiredAt ? ` (만료일: ${fmtDateShort(dateKeyFromDate(expiredAt))})` : '';
+      throw new Error(`GitHub 토큰이 만료됐거나 더 이상 유효하지 않아요${expiredHint}. 설정 탭 → 계정 연결에서 토큰을 다시 확인해주세요.`);
+    }
     return res;
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('요청 시간이 초과됐어요. 네트워크 상태를 확인하고 다시 시도해주세요.');
@@ -771,7 +795,7 @@ function GlobalLightbox() {
 
   return (
     <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-black/90 p-4 wj-modal-pop gap-3" onClick={() => setState(null)}>
-      <button onClick={() => setState(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 active:scale-90 transition-all">
+      <button onClick={() => setState(null)} title="닫기" aria-label="닫기" className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 active:scale-90 transition-all">
         <X size={20} />
       </button>
       {loading && <LoaderCircle size={26} className="text-white/70 wj-spin" />}
@@ -882,7 +906,7 @@ function SettingsSectionHeader({ icon: Ico, label }) {
   );
 }
 
-function SettingsPanel({ initial, onSave, onDisconnect, embedded }) {
+function SettingsPanel({ initial, onSave, onDisconnect, embedded, tokenExpiresAt }) {
   const [owner, setOwner] = useState(initial?.owner || '');
   const [repo, setRepo] = useState(initial?.repo || '');
   const [branch, setBranch] = useState(initial?.branch || 'main');
@@ -932,6 +956,9 @@ function SettingsPanel({ initial, onSave, onDisconnect, embedded }) {
     if (embedded) setEditing(false); // 저장 후엔 다시 요약 카드로 접어줌
   };
 
+  // fine-grained 토큰이면 GitHub이 응답 헤더로 만료일을 알려줌(App에서 읽어서 내려줌) — classic 토큰은 만료일이 없어서 null
+  const tokenDaysLeft = tokenExpiresAt ? daysUntilDate(tokenExpiresAt) : null;
+
   return (
     <div className={embedded ? '' : 'min-h-screen flex items-center justify-center px-4 py-10'}>
       <div className={embedded ? '' : 'w-full max-w-md'}>
@@ -956,6 +983,12 @@ function SettingsPanel({ initial, onSave, onDisconnect, embedded }) {
               <div className="min-w-0">
                 <div className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{initial?.owner}/{initial?.repo}</div>
                 <div className="text-[11px] text-slate-400 dark:text-slate-500">연결됨{initial?.branch && initial.branch !== 'main' ? ` · ${initial.branch} 브랜치` : ''}</div>
+                {tokenExpiresAt && (
+                  <div className={`text-[11px] mt-0.5 ${tokenDaysLeft <= 14 ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}>
+                    토큰 만료 {fmtDateShort(dateKeyFromDate(tokenExpiresAt))}
+                    {tokenDaysLeft < 0 ? ' · 이미 만료됨' : ` · ${tokenDaysLeft}일 남음`}
+                  </div>
+                )}
               </div>
             </div>
             <button onClick={startEdit} className="shrink-0 text-[12px] font-medium px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 transition-all">수정</button>
@@ -1076,7 +1109,7 @@ function RepoUsagePanel({ cfg }) {
         <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
           <DatabaseIcon size={14} /> 데이터 저장소 용량
         </div>
-        <button onClick={load} disabled={loading} title="새로고침"
+        <button onClick={load} disabled={loading} title="새로고침" aria-label="새로고침"
           className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all disabled:opacity-50">
           <RefreshCw size={12.5} className={loading ? 'wj-spin' : ''} />
         </button>
@@ -1284,7 +1317,7 @@ function CategoryManager({ customCategories, onAdd, onDelete }) {
         {customCategories.map(c => (
           <span key={c.label} className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-full" style={{ color: c.color, background: c.color + '1A' }}>
             {c.label}
-            <button onClick={() => onDelete(c)} className="hover:opacity-60 active:scale-90 transition-all"><X size={11} /></button>
+            <button onClick={() => onDelete(c)} title="카테고리 삭제" aria-label={`${c.label} 카테고리 삭제`} className="hover:opacity-60 active:scale-90 transition-all"><X size={11} /></button>
           </span>
         ))}
       </div>
@@ -1293,14 +1326,14 @@ function CategoryManager({ customCategories, onAdd, onDelete }) {
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
           placeholder="새 카테고리 이름"
           className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-        <button onClick={handleAdd} disabled={!text.trim()}
+        <button onClick={handleAdd} disabled={!text.trim()} title="카테고리 추가" aria-label="카테고리 추가"
           className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 disabled:opacity-40 disabled:active:scale-100 transition-all">
           <Plus size={14} strokeWidth={2.5} />
         </button>
       </div>
       <div className="flex items-center gap-1.5">
         {CUSTOM_CATEGORY_COLORS.map(c => (
-          <button key={c} onClick={() => setColor(c)} title={c}
+          <button key={c} onClick={() => setColor(c)} title={c} aria-label={`색상 ${c} 선택`}
             className={`w-5 h-5 rounded-full active:scale-90 transition-all ${color === c ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-900' : ''}`}
             style={{ background: c, ...(color === c ? { boxShadow: `0 0 0 2px ${c}` } : {}) }} />
         ))}
@@ -1323,7 +1356,7 @@ function PhraseManager({ phrases, onAdd, onDelete }) {
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
           placeholder="예: 회의 참석, 코드 리뷰 진행"
           className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-        <button onClick={handleAdd} disabled={!text.trim()}
+        <button onClick={handleAdd} disabled={!text.trim()} title="문구 추가" aria-label="문구 추가"
           className="p-2 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 disabled:opacity-40 disabled:active:scale-100 transition-all">
           <Plus size={14} strokeWidth={2.5} />
         </button>
@@ -1335,7 +1368,7 @@ function PhraseManager({ phrases, onAdd, onDelete }) {
           {phrases.map(p => (
             <span key={p.id} className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               {p.text}
-              <button onClick={() => onDelete(p)} className="text-slate-400 hover:text-red-500 active:scale-90 transition-all"><X size={11} /></button>
+              <button onClick={() => onDelete(p)} title="문구 삭제" aria-label={`문구 "${p.text}" 삭제`} className="text-slate-400 hover:text-red-500 active:scale-90 transition-all"><X size={11} /></button>
             </span>
           ))}
         </div>
@@ -1389,7 +1422,7 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
       <form onSubmit={handleSubmit} className="wj-modal-pop relative w-full sm:max-w-md bg-white dark:bg-slate-900 sm:rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl my-0 sm:my-8 max-h-[100vh] sm:max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">빠른 기록 수정</h2>
-          <button type="button" onClick={onClose} className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
+          <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
           <textarea value={text} onChange={e => setText(e.target.value)} rows={4}
@@ -1401,14 +1434,14 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
                 return (
                   <div key={thumb + idx} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
                     <GhImage cfg={cfg} path={thumb} originalPath={original} className="w-full h-full object-cover" />
-                    <button type="button" onClick={() => removeKeep(ref)} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
+                    <button type="button" onClick={() => removeKeep(ref)} title="사진 제거" aria-label="사진 제거" className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
                   </div>
                 );
               })}
               {newFiles.map((f, i) => (
                 <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
                   <img src={URL.createObjectURL(f)} className="w-full h-full object-cover" />
-                  <button type="button" onClick={() => removeNew(i)} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
+                  <button type="button" onClick={() => removeNew(i)} title="사진 제거" aria-label="사진 제거" className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
                 </div>
               ))}
             </div>
@@ -1510,10 +1543,10 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
             )}
           </span>
           <div className="flex items-center gap-1">
-            <button onClick={onEdit} title="수정" className="p-2 rounded text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all">
+            <button onClick={onEdit} title="수정" aria-label="빠른 기록 수정" className="p-2 rounded text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all">
               <Pencil size={15} />
             </button>
-            <button onClick={onDelete} title="삭제" className="p-2 rounded text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all">
+            <button onClick={onDelete} title="삭제" aria-label="빠른 기록 삭제" className="p-2 rounded text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all">
               <Trash2 size={15} />
             </button>
           </div>
@@ -1558,7 +1591,7 @@ function NotePreviewModal({ open, note, cfg, onClose, onEdit, onDelete, onPromot
       <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative wj-modal-pop w-full max-w-lg mt-8 sm:mt-0">
         <div className="flex justify-end mb-2">
-          <button onClick={onClose} className="p-2 rounded-md text-slate-300 hover:text-slate-100 hover:bg-white/10 active:scale-90 transition-all"><X size={16} /></button>
+          <button onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-300 hover:text-slate-100 hover:bg-white/10 active:scale-90 transition-all"><X size={16} /></button>
         </div>
         <QuickNoteCard cfg={cfg} note={note} leaving={false}
           onEdit={() => { onClose(); onEdit(note); }}
@@ -1648,7 +1681,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
             {files.map((f, i) => (
               <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
                 <img src={URL.createObjectURL(f)} className="w-full h-full object-cover" />
-                <button onClick={() => removeFile(i)} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform">
+                <button onClick={() => removeFile(i)} title="사진 제거" aria-label="사진 제거" className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform">
                   <X size={10} />
                 </button>
               </div>
@@ -1656,7 +1689,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
           </div>
         )}
         <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800">
-          <button onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title="사진 첨부" aria-label="사진 첨부"
             className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all">
             <Camera size={17} />
           </button>
@@ -1704,8 +1737,8 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
                     {readonly && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500">보관 레포</span>}
                   </span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => onRestore(note)} title="복원" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 active:scale-90 transition-all"><Undo2 size={15} /></button>
-                    <button onClick={() => onPermanentDelete(note)} title="영구 삭제" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
+                    <button onClick={() => onRestore(note)} title="복원" aria-label="빠른 기록 복원" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 active:scale-90 transition-all"><Undo2 size={15} /></button>
+                    <button onClick={() => onPermanentDelete(note)} title="영구 삭제" aria-label="빠른 기록 영구 삭제" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
                   </div>
                 </div>
                 {note.text && <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 break-words">{note.text}</p>}
@@ -1838,28 +1871,28 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos,
             className="flex-1 min-w-0 px-2 py-1 text-[13px] bg-slate-50 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200" />
           <input type="date" value={editDue} onChange={e => setEditDue(e.target.value)}
             className="w-[118px] shrink-0 px-2 py-1 rounded-md text-[12px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300" />
-          <button onClick={() => saveEdit(t)} className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 transition-all"><CircleCheckBig size={14} /></button>
-          <button onClick={cancelEdit} className="shrink-0 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><X size={14} /></button>
+          <button onClick={() => saveEdit(t)} title="저장" aria-label="할 일 수정 저장" className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 transition-all"><CircleCheckBig size={14} /></button>
+          <button onClick={cancelEdit} title="취소" aria-label="할 일 수정 취소" className="shrink-0 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><X size={14} /></button>
         </div>
       );
     }
     return (
       <div key={t.id} className={`flex items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors ${completingId === t.id ? 'wj-item-leaving' : ''}`}>
-        <button onClick={() => handleToggleAnimated(t)} disabled={completingId === t.id}
+        <button onClick={() => handleToggleAnimated(t)} disabled={completingId === t.id} title="완료 처리" aria-label={`"${t.text}" 완료 처리`}
           className={`shrink-0 -m-1.5 p-1.5 transition-all active:scale-90 ${completingId === t.id ? 'text-emerald-500 wj-check-bounce' : 'text-slate-300 dark:text-slate-600 hover:text-slate-900 dark:hover:text-slate-100'}`}>
           {completingId === t.id ? <CircleCheckBig size={20} /> : <CircleIcon size={20} />}
         </button>
         <span onClick={() => startEdit(t)} className="flex-1 min-w-0 text-[14px] text-slate-700 dark:text-slate-200 break-words cursor-pointer">{t.text}</span>
         {badge && <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${badge.cls}`}>{badge.txt}</span>}
         {t.due && (
-          <button onClick={() => downloadICS(t.text, t.due)} title="캘린더에 추가" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-[#5B9DF9] active:scale-90 transition-all shrink-0">
+          <button onClick={() => downloadICS(t.text, t.due)} title="캘린더에 추가" aria-label="캘린더에 추가" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-[#5B9DF9] active:scale-90 transition-all shrink-0">
             <CalendarPlus size={14} />
           </button>
         )}
-        <button onClick={() => startEdit(t)} title="수정" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all shrink-0">
+        <button onClick={() => startEdit(t)} title="수정" aria-label="할 일 수정" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all shrink-0">
           <Pencil size={15} />
         </button>
-        <button onClick={() => onDelete(t)} className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0">
+        <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0">
           <X size={15} />
         </button>
       </div>
@@ -1932,12 +1965,12 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos,
             <div className="space-y-1.5 mt-2">
               {done.map(t => (
                 <div key={t.id} className="flex items-center gap-2.5 rounded-lg border border-slate-100 dark:border-slate-800/60 px-3 py-2 opacity-60">
-                  <button onClick={() => onToggle(t)} className="text-emerald-500 shrink-0 -m-1.5 p-1.5 active:scale-90 transition-transform"><CircleCheckBig size={18} /></button>
+                  <button onClick={() => onToggle(t)} title="완료 취소" aria-label={`"${t.text}" 완료 취소`} className="text-emerald-500 shrink-0 -m-1.5 p-1.5 active:scale-90 transition-transform"><CircleCheckBig size={18} /></button>
                   <div className="flex-1 min-w-0">
                     <span className="block text-[13px] text-slate-500 dark:text-slate-400 line-through break-words">{t.text}</span>
                     {t.completedAt && <span className="block text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5">완료 {fmtDateShort(dateKeyFromDate(new Date(t.completedAt)))} {fmtTime(t.completedAt)}</span>}
                   </div>
-                  <button onClick={() => onDelete(t)} className="p-2 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0"><X size={15} /></button>
+                  <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="p-2 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0"><X size={15} /></button>
                 </div>
               ))}
             </div>
@@ -2045,16 +2078,16 @@ function MemoSection({ memos, onAdd, onEdit, onDelete }) {
                 <input value={editTagInput} onChange={e => setEditTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveEdit(m)}
                   placeholder="태그 (쉼표로 구분)"
                   className="flex-1 min-w-0 px-2 py-1 rounded-md text-[12px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300" />
-                <button onClick={() => saveEdit(m)} className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 transition-all"><CircleCheckBig size={14} /></button>
-                <button onClick={cancelEdit} className="shrink-0 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><X size={14} /></button>
+                <button onClick={() => saveEdit(m)} title="저장" aria-label="메모 수정 저장" className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 transition-all"><CircleCheckBig size={14} /></button>
+                <button onClick={cancelEdit} title="취소" aria-label="메모 수정 취소" className="shrink-0 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><X size={14} /></button>
               </div>
             </div>
           ) : (
             <div key={m.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
               <div className="flex items-start gap-2.5">
                 <span onClick={() => startEdit(m)} className="flex-1 min-w-0 text-[14px] text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap cursor-pointer">{m.text}</span>
-                <button onClick={() => startEdit(m)} title="수정" className="shrink-0 p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><Pencil size={15} /></button>
-                <button onClick={() => onDelete(m)} className="shrink-0 p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all"><X size={15} /></button>
+                <button onClick={() => startEdit(m)} title="수정" aria-label="메모 수정" className="shrink-0 p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><Pencil size={15} /></button>
+                <button onClick={() => onDelete(m)} title="삭제" aria-label="메모 삭제" className="shrink-0 p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all"><X size={15} /></button>
               </div>
               {m.tags && m.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
@@ -2166,7 +2199,7 @@ function TagInput({ tags, onChange, suggestions, placeholder }) {
         {tags.map(t => (
           <span key={t} className="inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
             {t}
-            <button type="button" onClick={() => removeTag(t)} className="hover:text-red-500 active:scale-90 transition-all"><X size={10} /></button>
+            <button type="button" onClick={() => removeTag(t)} title="태그 삭제" aria-label={`태그 ${t} 삭제`} className="hover:text-red-500 active:scale-90 transition-all"><X size={10} /></button>
           </span>
         ))}
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown}
@@ -2290,12 +2323,12 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
             <h3 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words"><HighlightText text={entry.title || '(제목 없음)'} query={query} /></h3>
           </div>
           <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
-            <button onClick={handleFavClick} title={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'}
+            <button onClick={handleFavClick} title={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'} aria-label={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'}
               className={`p-2 rounded-md active:scale-90 transition-all ${entry.favorite ? 'text-[#E8A93B]' : 'text-slate-400 dark:text-slate-500 hover:text-[#E8A93B]'} hover:bg-slate-100 dark:hover:bg-slate-800 ${favBounce ? 'wj-check-bounce' : ''}`}>
               <Star size={16} fill={entry.favorite ? '#E8A93B' : 'none'} />
             </button>
-            <button onClick={() => onEdit(entry)} className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><Pencil size={16} /></button>
-            <button onClick={() => onDelete(entry)} className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90 transition-all"><Trash2 size={16} /></button>
+            <button onClick={() => onEdit(entry)} title="수정" aria-label="일지 수정" className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><Pencil size={16} /></button>
+            <button onClick={() => onDelete(entry)} title="삭제" aria-label="일지 삭제" className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90 transition-all"><Trash2 size={16} /></button>
           </div>
         </div>
 
@@ -2399,7 +2432,7 @@ function EntryPreviewModal({ open, entry, cfg, categoryMap, onClose, onEdit, onD
       <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative wj-modal-pop w-full max-w-lg mt-8 sm:mt-0">
         <div className="flex justify-end mb-2">
-          <button onClick={onClose} className="p-2 rounded-md text-slate-300 hover:text-slate-100 hover:bg-white/10 active:scale-90 transition-all"><X size={16} /></button>
+          <button onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-300 hover:text-slate-100 hover:bg-white/10 active:scale-90 transition-all"><X size={16} /></button>
         </div>
         <EntryCard cfg={cfg} entry={entry} query=""
           onEdit={e => { onClose(); onEdit(e); }}
@@ -2548,7 +2581,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">
             {initial ? '일지 수정' : prefillNote ? '빠른 기록에서 일지 작성' : '새 일지 작성'}
           </h2>
-          <button type="button" onClick={attemptClose} className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
+          <button type="button" onClick={attemptClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
         </div>
 
         {draftRestored && (
@@ -2603,7 +2636,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
                   <span className="w-1 h-1 rounded-full bg-slate-400 shrink-0" />
                   <input type="text" value={b} onChange={e => updateBullet(idx, e.target.value)} placeholder="한 일을 입력하세요"
                     className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-                  {form.bullets.length > 1 && <button type="button" onClick={() => removeBullet(idx)} className="p-2 text-slate-400 hover:text-red-500 shrink-0 active:scale-90 transition-transform"><X size={15} /></button>}
+                  {form.bullets.length > 1 && <button type="button" onClick={() => removeBullet(idx)} title="항목 삭제" aria-label="항목 삭제" className="p-2 text-slate-400 hover:text-red-500 shrink-0 active:scale-90 transition-transform"><X size={15} /></button>}
                 </div>
               ))}
             </div>
@@ -2644,7 +2677,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
                     className="w-24 shrink-0 px-2 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
                   <input type="url" value={l.url} onChange={e => updateLink(idx, 'url', e.target.value)} placeholder="https://…"
                     className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-                  <button type="button" onClick={() => removeLink(idx)} className="p-2 text-slate-400 hover:text-red-500 shrink-0 active:scale-90 transition-transform"><X size={15} /></button>
+                  <button type="button" onClick={() => removeLink(idx)} title="링크 삭제" aria-label="링크 삭제" className="p-2 text-slate-400 hover:text-red-500 shrink-0 active:scale-90 transition-transform"><X size={15} /></button>
                 </div>
               ))}
             </div>
@@ -2666,14 +2699,14 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
                 return (
                   <div key={thumb + idx} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
                     <GhImage cfg={imgCfg} path={thumb} originalPath={original} className="w-full h-full object-cover" />
-                    <button type="button" onClick={() => removeKeepImage(ref)} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
+                    <button type="button" onClick={() => removeKeepImage(ref)} title="사진 제거" aria-label="사진 제거" className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
                   </div>
                 );
               })}
               {newFiles.map((f, i) => (
                 <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
                   <img src={URL.createObjectURL(f)} className="w-full h-full object-cover" />
-                  <button type="button" onClick={() => removeNewFile(i)} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
+                  <button type="button" onClick={() => removeNewFile(i)} title="사진 제거" aria-label="사진 제거" className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center active:scale-90 transition-transform"><X size={10} /></button>
                 </div>
               ))}
               <button type="button" onClick={() => photoInputRef.current && photoInputRef.current.click()} disabled={totalImages >= 4}
@@ -2819,7 +2852,7 @@ function DayDetailSheet({ open, dateKey, cfg, categoryMap, dayEntries, dayNotes,
           <div className="flex items-center gap-2 text-[14px] font-semibold text-slate-800 dark:text-slate-100">
             <Calendar size={15} className="text-slate-400 dark:text-slate-500" /> {dateKey ? fmtDateShort(dateKey) : ''}
           </div>
-          <button onClick={onClose} className="p-2 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><X size={16} /></button>
+          <button onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><X size={16} /></button>
         </div>
 
         <div className="px-4 sm:px-6 py-4 space-y-4">
@@ -3047,8 +3080,8 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                     {entry._readonly && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500">보관 레포</span>}
                   </span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => onRestore(entry)} title="복원" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 active:scale-90 transition-all"><Undo2 size={15} /></button>
-                    <button onClick={() => onPermanentDelete(entry)} title="영구 삭제" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
+                    <button onClick={() => onRestore(entry)} title="복원" aria-label="일지 복원" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 active:scale-90 transition-all"><Undo2 size={15} /></button>
+                    <button onClick={() => onPermanentDelete(entry)} title="영구 삭제" aria-label="일지 영구 삭제" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
                   </div>
                 </div>
                 <div className="text-[13px] font-medium text-slate-700 dark:text-slate-200 mt-1 break-words">{entry.title || '(제목 없음)'}</div>
@@ -3096,7 +3129,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         </div>
       )}
 
-      <button onClick={onOpenNew} title="새 일지 작성"
+      <button onClick={onOpenNew} title="새 일지 작성" aria-label="새 일지 작성"
         className="fixed right-4 sm:right-8 z-40 w-12 h-12 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-lg flex items-center justify-center active:scale-90 transition-all"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}>
         <Plus size={22} strokeWidth={2.5} />
@@ -3124,13 +3157,13 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       {view === 'calendar' ? (
         <React.Fragment>
           <div className="flex items-center justify-between px-0.5">
-            <button onClick={() => goMonth(-1)} className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><ArrowLeft size={15} /></button>
+            <button onClick={() => goMonth(-1)} title="이전 달" aria-label="이전 달" className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><ArrowLeft size={15} /></button>
             <div className="flex items-center gap-2">
               <span className="text-[14px] font-semibold text-slate-700 dark:text-slate-200">{calDate.y}년 {calDate.m + 1}월</span>
               <button onClick={() => { const d = new Date(); setCalDate({ y: d.getFullYear(), m: d.getMonth() }); }}
                 className="text-[11px] font-medium px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">오늘</button>
             </div>
-            <button onClick={() => goMonth(1)} className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><ArrowRight size={15} /></button>
+            <button onClick={() => goMonth(1)} title="다음 달" aria-label="다음 달" className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><ArrowRight size={15} /></button>
           </div>
           <MonthCalendar year={calDate.y} month={calDate.m} entriesByDay={entriesByDay} notesByDay={notesByDay} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
           <div className="flex items-center gap-3 px-0.5 text-[11px] text-slate-400 dark:text-slate-500">
@@ -3209,9 +3242,9 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         <React.Fragment>
           <div className="flex items-center justify-between px-0.5">
             <div className="flex items-center gap-2">
-              <button onClick={() => setHighlightYear(y => y - 1)} className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><ArrowLeft size={15} /></button>
+              <button onClick={() => setHighlightYear(y => y - 1)} title="이전 해" aria-label="이전 해" className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><ArrowLeft size={15} /></button>
               <span className="text-[14px] font-semibold text-slate-700 dark:text-slate-200">{highlightYear}년 하이라이트</span>
-              <button onClick={() => setHighlightYear(y => y + 1)} disabled={highlightYear >= new Date().getFullYear()}
+              <button onClick={() => setHighlightYear(y => y + 1)} disabled={highlightYear >= new Date().getFullYear()} title="다음 해" aria-label="다음 해"
                 className="p-2 rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 disabled:opacity-30 disabled:active:scale-100 transition-all"><ArrowRight size={15} /></button>
             </div>
             {highlightYear !== new Date().getFullYear() && (
@@ -3388,6 +3421,7 @@ function App() {
   const [lastSynced, setLastSynced] = useState(null);
   const [offline, setOffline] = useState(false);       // 네트워크 실패 → 로컬 캐시로 대체 표시 중인지
   const [offlineCachedAt, setOfflineCachedAt] = useState(null);
+  const [tokenExpiresAt, setTokenExpiresAt] = useState(null); // fine-grained 토큰의 만료 시각 — GitHub 응답 헤더에서 읽음(설정 탭에 표시)
 
   const [toast, setToast] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -3448,6 +3482,7 @@ function App() {
       setMemos(m.data); setMemosSha(m.sha);
       setLastSynced(Date.now());
       setOffline(false); setOfflineCachedAt(null);
+      setTokenExpiresAt(parseGhTokenExpiration(ghTokenExpirationRaw));
       // 다음에 오프라인일 때 보여줄 수 있게, 성공한 결과를 이 기기에 그대로 캐시해둠
       try {
         localStorage.setItem(cacheKey, JSON.stringify({ entries: e.data, quickNotes: q.data, todos: t.data, phrases: p.data, categories: cat.data, memos: m.data, cachedAt: Date.now() }));
@@ -4452,11 +4487,12 @@ function App() {
           <header className="flex items-center justify-between mb-4">
             <Logo />
             <div className="flex items-center gap-1.5">
-              <button onClick={loadAll} disabled={loading} title="새로고침"
+              <button onClick={loadAll} disabled={loading} title="새로고침" aria-label="새로고침"
                 className="p-2.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all disabled:opacity-50">
                 <RefreshCw size={17} className={loading ? 'wj-spin' : ''} />
               </button>
               <button onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}
+                title={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'} aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
                 className="p-2.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all">
                 {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
               </button>
@@ -4475,6 +4511,16 @@ function App() {
                 오프라인이에요{offlineCachedAt ? ` · ${fmtDateShort(dateKeyFromDate(new Date(offlineCachedAt)))} ${fmtTime(offlineCachedAt)} 기준 저장된 내용을 보여주고 있어요` : ''}. 이 상태에서 한 변경사항은 저장되지 않을 수 있어요.
               </span>
               <button onClick={loadAll} className="shrink-0 underline whitespace-nowrap active:scale-90 transition-transform">다시 연결</button>
+            </div>
+          )}
+          {!offline && tokenExpiresAt && daysUntilDate(tokenExpiresAt) <= 14 && (
+            <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-500">
+              <span className="break-words">
+                {daysUntilDate(tokenExpiresAt) < 0
+                  ? `GitHub 토큰이 ${fmtDateShort(dateKeyFromDate(tokenExpiresAt))}에 만료됐어요. 설정 탭에서 새 토큰으로 교체해주세요.`
+                  : `GitHub 토큰이 ${daysUntilDate(tokenExpiresAt)}일 뒤(${fmtDateShort(dateKeyFromDate(tokenExpiresAt))}) 만료돼요. 미리 새 토큰을 발급해두면 안전해요.`}
+              </span>
+              <button onClick={() => setTab('settings')} className="shrink-0 underline whitespace-nowrap active:scale-90 transition-transform">설정으로</button>
             </div>
           )}
           {!syncError && !offline && lastSynced && (
@@ -4504,7 +4550,7 @@ function App() {
             <div className="space-y-6">
               <div className="space-y-2.5">
                 <SettingsSectionHeader icon={Key} label="계정 연결" />
-                <SettingsPanel embedded initial={cfg} onSave={handleSaveConfig} onDisconnect={handleDisconnect} />
+                <SettingsPanel embedded initial={cfg} tokenExpiresAt={tokenExpiresAt} onSave={handleSaveConfig} onDisconnect={handleDisconnect} />
               </div>
 
               <div className="space-y-2.5">
