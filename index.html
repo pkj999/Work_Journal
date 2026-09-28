@@ -13,9 +13,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="업무일지" />
 <meta name="format-detection" content="telephone=no" />
-<link rel="apple-touch-icon" href="icon-192.png" />
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<!-- 아이콘 파일 내용만 바꾸면 iOS Safari 등이 URL 기준으로 캐싱해서 사이트 캐시를 지워도 옛날 아이콘이 계속 나옴 —
+     그래서 ?v= 쿼리스트링으로 강제로 새 URL을 만듦. 아이콘을 바꿀 때마다 이 값과 manifest.json의 ?v=,
+     sw.js의 APP_SHELL 안 아이콘 경로도 같이 올려야 함(APP_VERSION 올리는 것과 같은 타이밍). -->
+<link rel="apple-touch-icon" href="icon-192.png?v=25" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=25" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=25" />
 
 <!-- Fonts -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
@@ -248,7 +251,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.24 · 2026-09-28';
+const APP_VERSION = 'ver.25 · 2026-09-28';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
