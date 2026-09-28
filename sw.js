@@ -1,7 +1,7 @@
 // 업무일지 — 간단한 앱 쉘 캐싱 서비스워커
 // 로컬 파일(index.html, manifest, 아이콘)만 캐시하고,
 // 외부 CDN(폰트/React/Tailwind 등)은 그대로 네트워크로 통과시킵니다.
-const CACHE_NAME = 'workjournal-shell-ver25';
+const CACHE_NAME = 'workjournal-shell-ver26';
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png?v=25', './icon-512.png?v=25'];
 
 self.addEventListener('install', event => {
