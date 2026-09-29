@@ -252,7 +252,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.30 · 2026-09-29';
+const APP_VERSION = 'ver.31 · 2026-09-29';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -3054,7 +3054,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       .filter(e => !monthFilter || (e.date || '').startsWith(currentMonthKey))
       .filter(e => {
         if (!q) return true;
-        const hay = [e.title, e.problem, e.solution, e.lesson, ...(e.bullets || []), ...(e.tags || [])].join(' ').toLowerCase();
+        const hay = [e.title, e.overview, e.problem, e.solution, e.lesson, ...(e.bullets || []), ...(e.tags || [])].join(' ').toLowerCase();
         return hay.includes(q);
       })
       .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
