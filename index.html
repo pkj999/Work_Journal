@@ -251,7 +251,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.27 · 2026-09-29';
+const APP_VERSION = 'ver.28 · 2026-09-29';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -1420,14 +1420,14 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-0 sm:p-6 overflow-y-auto">
-      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
-      <form onSubmit={handleSubmit} className="wj-modal-pop relative w-full sm:max-w-md bg-white dark:bg-slate-900 sm:rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl my-0 sm:my-8 max-h-[100vh] sm:max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">빠른 기록 수정</h2>
+    <div className="fixed inset-0 z-50 flex items-start sm:items-stretch justify-center overflow-y-auto">
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm sm:backdrop-blur-0 sm:bg-[#F7F7F9] sm:dark:bg-[#0B0E13]" onClick={onClose} />
+      <form onSubmit={handleSubmit} className="wj-modal-pop relative w-full bg-white dark:bg-slate-900 sm:bg-transparent border border-slate-200 dark:border-slate-700 sm:border-0 shadow-2xl sm:shadow-none my-0 max-h-[100vh] sm:max-h-none flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0 sm:max-w-xl sm:mx-auto sm:w-full">
+          <h2 className="text-[15px] sm:text-[19px] font-semibold text-slate-800 dark:text-slate-100">빠른 기록 수정</h2>
           <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
         </div>
-        <div className="px-5 py-4 space-y-3 overflow-y-auto">
+        <div className="px-5 py-4 sm:py-8 space-y-3 overflow-y-auto sm:max-w-xl sm:mx-auto sm:w-full">
           <AutoTextarea value={text} onChange={e => setText(e.target.value)} rows={4}
             className="w-full px-3 py-2 rounded-lg text-[14px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 resize-none" />
           {(keepImages.length > 0 || newFiles.length > 0) && (
@@ -1457,7 +1457,7 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
             <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0 sm:max-w-xl sm:mx-auto sm:w-full">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-[13px] font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 transition-transform">취소</button>
           <button type="submit" disabled={saving}
             className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 active:scale-[0.97] disabled:opacity-40 transition-all inline-flex items-center gap-1.5">
@@ -2600,23 +2600,23 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-0 sm:p-6 overflow-y-auto">
-      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={attemptClose} />
-      <form onSubmit={handleSubmit} className="wj-modal-pop relative w-full sm:max-w-xl bg-white dark:bg-slate-900 sm:rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl my-0 sm:my-8 max-h-[100vh] sm:max-h-[88vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-stretch justify-center overflow-y-auto">
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm sm:backdrop-blur-0 sm:bg-[#F7F7F9] sm:dark:bg-[#0B0E13]" onClick={attemptClose} />
+      <form onSubmit={handleSubmit} className="wj-modal-pop relative w-full bg-white dark:bg-slate-900 sm:bg-transparent border border-slate-200 dark:border-slate-700 sm:border-0 shadow-2xl sm:shadow-none my-0 max-h-[100vh] sm:max-h-none flex flex-col">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0 sm:max-w-2xl lg:max-w-3xl sm:mx-auto sm:w-full">
+          <h2 className="text-[15px] sm:text-[19px] font-semibold text-slate-800 dark:text-slate-100">
             {initial ? '일지 수정' : prefillNote ? '빠른 기록에서 일지 작성' : '새 일지 작성'}
           </h2>
           <button type="button" onClick={attemptClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
         </div>
 
         {draftRestored && (
-          <div className="mx-5 sm:mx-6 mt-3 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-[12px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+          <div className="mx-5 sm:mx-auto mt-3 sm:w-full sm:max-w-2xl lg:max-w-3xl px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-[12px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
             <RefreshCw size={12} /> 임시저장된 내용을 불러왔어요.
           </div>
         )}
 
-        <div className="px-5 sm:px-6 py-5 space-y-4 overflow-y-auto">
+        <div className="px-5 sm:px-6 py-5 sm:py-8 space-y-4 overflow-y-auto sm:max-w-2xl lg:max-w-3xl sm:mx-auto sm:w-full">
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">날짜</label>
@@ -2750,7 +2750,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 sm:px-6 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
+        <div className="flex items-center justify-end gap-2 px-5 sm:px-6 py-4 border-t border-slate-200 dark:border-slate-800 shrink-0 sm:max-w-2xl lg:max-w-3xl sm:mx-auto sm:w-full">
           <button type="button" onClick={attemptClose} disabled={saving} className="px-3.5 py-2 rounded-lg text-[13px] font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 active:scale-95 transition-transform">취소</button>
           <button type="submit" disabled={!canSave || saving} className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 transition-all inline-flex items-center gap-1.5">
             {saving && <LoaderCircle size={13} className="wj-spin" />} {initial ? '수정 저장' : '저장'}
