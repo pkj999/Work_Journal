@@ -252,7 +252,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.29 · 2026-09-29';
+const APP_VERSION = 'ver.30 · 2026-09-29';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -1423,7 +1423,7 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-stretch justify-center sm:justify-end overflow-y-auto">
       <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm sm:backdrop-blur-0 sm:bg-black/20" onClick={onClose} />
-      <form onSubmit={handleSubmit} className="wj-modal-pop sm:[animation:wj-drawer-in_.22s_cubic-bezier(.32,.72,0,1)_both] relative w-full sm:w-[440px] sm:max-w-[92vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 sm:border-y-0 sm:border-r-0 shadow-2xl my-0 max-h-[100vh] sm:max-h-none flex flex-col">
+      <form onSubmit={handleSubmit} className="wj-modal-pop sm:[animation:wj-drawer-in_.22s_cubic-bezier(.32,.72,0,1)_both] relative w-full sm:w-[38vw] sm:min-w-[480px] sm:max-w-[640px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 sm:border-y-0 sm:border-r-0 shadow-2xl my-0 max-h-[100vh] sm:max-h-none flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">빠른 기록 수정</h2>
           <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
@@ -2603,7 +2603,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-stretch justify-center sm:justify-end overflow-y-auto">
       <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm sm:backdrop-blur-0 sm:bg-black/20" onClick={attemptClose} />
-      <form onSubmit={handleSubmit} className="wj-modal-pop sm:[animation:wj-drawer-in_.22s_cubic-bezier(.32,.72,0,1)_both] relative w-full sm:w-[560px] sm:max-w-[92vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 sm:border-y-0 sm:border-r-0 shadow-2xl my-0 max-h-[100vh] sm:max-h-none flex flex-col">
+      <form onSubmit={handleSubmit} className="wj-modal-pop sm:[animation:wj-drawer-in_.22s_cubic-bezier(.32,.72,0,1)_both] relative w-full sm:w-[42vw] sm:min-w-[560px] sm:max-w-[760px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 sm:border-y-0 sm:border-r-0 shadow-2xl my-0 max-h-[100vh] sm:max-h-none flex flex-col">
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">
             {initial ? '일지 수정' : prefillNote ? '빠른 기록에서 일지 작성' : '새 일지 작성'}
