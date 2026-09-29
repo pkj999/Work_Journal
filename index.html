@@ -72,6 +72,8 @@
   @keyframes wj-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
   .wj-sheet-up { animation: wj-sheet-up 0.25s cubic-bezier(.32,.72,0,1) both; }
   @keyframes wj-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  /* 선택 모드 — 카드 안의 개별 버튼(수정/삭제/즐겨찾기 등)은 감추고, 카드 전체가 "선택 토글" 하나로만 동작 */
+  .wj-selecting .wj-card-actions { visibility: hidden; }
 
   textarea, input, select { font-family: inherit; }
   textarea:focus, input:focus, select:focus { outline: none; }
@@ -252,7 +254,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.31 · 2026-09-29';
+const APP_VERSION = 'ver.32 · 2026-09-29';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -1470,6 +1472,129 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
   );
 }
 
+/* ===========================================================
+   일괄 선택 (선택 모드) 공용 부품 — 일지/빠른 기록/할 일 탭이 같이 씀
+   흐름: "선택" 버튼 → 선택 모드 진입(카드마다 체크 표시) → 여러 개 고르기 → 하단 바의 작업 실행 → 성공하면 모드 종료
+=========================================================== */
+function useSelection() {
+  const [active, setActive] = useState(false);
+  const [ids, setIds] = useState(() => new Set());
+  const start = useCallback(() => { setIds(new Set()); setActive(true); }, []);
+  const stop = useCallback(() => { setActive(false); setIds(new Set()); }, []);
+  const toggle = useCallback(id => setIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }), []);
+  const setAll = useCallback(list => setIds(new Set(list)), []);
+  // 필터를 바꾸거나 새로고침/삭제로 화면에서 사라진 항목이 "보이지 않는 선택"으로 남아
+  // 엉뚱한 항목까지 같이 처리되는 걸 막기 위해, 지금 화면에 있는 것만 남김 (바뀐 게 없으면 같은 Set을 돌려줘서 재렌더 안 함)
+  const prune = useCallback(valid => setIds(prev => {
+    let changed = false;
+    const n = new Set();
+    prev.forEach(id => { if (valid.has(id)) n.add(id); else changed = true; });
+    return changed ? n : prev;
+  }), []);
+  useEffect(() => {
+    if (!active) return;
+    const onKey = e => { if (e.key === 'Escape') stop(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active, stop]);
+  return { active, ids, start, stop, toggle, setAll, prune };
+}
+
+// 일괄 작업 실행기 — 저장 중에 버튼을 연타해도 한 번만 실행되게 막고(ref로 즉시 차단), 성공하면 선택 모드를 끝냄.
+// fn이 true를 돌려주면 성공, false면 실패/취소(선택 상태를 유지해서 다시 시도할 수 있게 함)
+function useBulkRunner(sel) {
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const run = async fn => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    try { const ok = await fn(); if (ok) sel.stop(); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  return { busy, run };
+}
+
+function SelectCheck({ checked, disabled, className = '' }) {
+  return (
+    <span aria-hidden="true"
+      className={`pointer-events-none flex items-center justify-center w-5 h-5 rounded-full border-2 transition-colors ${
+        checked ? 'bg-slate-900 dark:bg-slate-100 border-slate-900 dark:border-slate-100 text-white dark:text-slate-900' : 'bg-white/90 dark:bg-slate-900/90 border-slate-300 dark:border-slate-600'
+      } ${disabled ? 'opacity-40' : ''} ${className}`}>
+      {checked && <Check size={12} strokeWidth={3} />}
+    </span>
+  );
+}
+
+// 카드 하나를 "선택 가능한 카드"로 감쌈. 선택 모드가 아닐 땐 겉모양이 완전히 그대로(감싸는 div만 추가).
+// 선택 모드에선 카드 내용을 inert(클릭·키보드 포커스 모두 차단)로 만들고, 카드 전체를 덮는 체크박스 버튼 하나만 살려둠
+// → 카드 안의 링크·복사·수정 버튼이 실수로 눌리는 일이 없음. 항상 같은 구조로 그려서 모드가 바뀌어도 카드가 다시 마운트되지 않음.
+function SelectableCard({ selectMode, selectable = true, selected, onToggle, label, indicator = 'top-right', children }) {
+  const pos = indicator === 'left' ? 'left-3 top-1/2 -translate-y-1/2' : 'right-3 top-3';
+  return (
+    <div className={`relative rounded-lg ${selectMode ? 'wj-selecting' : ''} ${selectMode && selected ? 'ring-2 ring-slate-900 dark:ring-slate-100' : ''}`}>
+      <div inert={selectMode ? '' : undefined} className={selectMode && !selectable ? 'opacity-50' : ''}>{children}</div>
+      {selectMode && (
+        <React.Fragment>
+          {selectable ? (
+            <button type="button" role="checkbox" aria-checked={!!selected} aria-label={label} onClick={onToggle}
+              className="absolute inset-0 z-10 w-full h-full rounded-lg cursor-pointer" />
+          ) : (
+            <div className="absolute inset-0 z-10 rounded-lg cursor-not-allowed" title="보관 레포 기록은 일괄 작업에서 제외돼요" />
+          )}
+          <SelectCheck checked={!!selected} disabled={!selectable} className={`absolute z-20 ${pos}`} />
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+// 하단에 떠 있는 일괄 작업 바 (탭 바 바로 위). 실제 작업 버튼들은 children으로 받음
+function SelectionBar({ count, total, onToggleAll, onCancel, busy, hint, children }) {
+  const allSelected = total > 0 && count >= total;
+  return (
+    <div className="fixed inset-x-0 z-[45] flex justify-center px-3 pointer-events-none" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 102px)' }}>
+      <div role="toolbar" aria-label="일괄 작업"
+        className="wj-sheet-up pointer-events-auto w-full max-w-2xl lg:max-w-3xl rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-2.5">
+        <div className="flex items-center justify-between gap-2 px-1 pb-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button type="button" onClick={onCancel} disabled={busy} title="선택 모드 종료" aria-label="선택 모드 종료"
+              className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 disabled:opacity-40 transition-all"><X size={15} /></button>
+            <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate" aria-live="polite">{count > 0 ? `${count}개 선택됨` : '항목을 선택하세요'}</span>
+          </div>
+          <button type="button" onClick={onToggleAll} disabled={total === 0 || busy}
+            className="shrink-0 text-[12px] font-medium px-2 py-1 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors">
+            {allSelected ? '선택 해제' : '전체 선택'}
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">{children}</div>
+        {hint && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 px-1 leading-relaxed">{hint}</p>}
+      </div>
+    </div>
+  );
+}
+const BULK_BTN = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 disabled:opacity-40 disabled:active:scale-100 disabled:hover:bg-transparent transition-all';
+function BulkButton({ icon: Ico, label, onClick, disabled, danger }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled}
+      className={`${BULK_BTN} ${danger ? 'ml-auto hover:!text-red-500 hover:!border-red-300 dark:hover:!border-red-500/50' : ''}`}>
+      {Ico && <Ico size={13} />} {label}
+    </button>
+  );
+}
+// 값을 고르는 일괄 작업(카테고리/중요도 변경) — 모바일에서도 네이티브 선택창이 뜨도록 투명한 <select>를 버튼 위에 얹음
+function BulkSelectControl({ icon: Ico, label, options, onChange, disabled }) {
+  return (
+    <label className={`relative ${BULK_BTN} ${disabled ? 'opacity-40 pointer-events-none' : 'cursor-pointer'}`}>
+      {Ico && <Ico size={13} />} {label}
+      <select aria-label={label} disabled={disabled} value="" onChange={e => { if (e.target.value) onChange(e.target.value); }}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+        <option value="">{label}</option>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 // 스와이프해서 삭제 — 모바일 터치로 왼쪽으로 밀면 삭제, 데스크탑에선 그냥 감싸기만 함 (기존 삭제 버튼은 그대로 유지)
 function SwipeToDelete({ onDelete, disabled, children }) {
   const [dragX, setDragX] = useState(0);
@@ -1546,7 +1671,7 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
               </span>
             )}
           </span>
-          <div className="flex items-center gap-1">
+          <div className="wj-card-actions flex items-center gap-1">
             <button onClick={onEdit} title="수정" aria-label="빠른 기록 수정" className="p-2 rounded text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all">
               <Pencil size={15} />
             </button>
@@ -1607,7 +1732,7 @@ function NotePreviewModal({ open, note, cfg, onClose, onEdit, onDelete, onPromot
   );
 }
 
-function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, onDelete, onRestore, onPermanentDelete, onEditSave, onPromote, onViewEntry, uploading, savingEdit, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
+function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, onDelete, onBulkDelete, onRestore, onPermanentDelete, onEditSave, onPromote, onViewEntry, uploading, savingEdit, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
   // 빠른 기록 입력창 임시저장 — 사진 파일은 로컬 저장이 안 돼서 텍스트만 대상으로 함
   const QUICK_DRAFT_KEY = 'wj-draft-quick-note';
   const [text, setText] = useState(() => { try { return localStorage.getItem(QUICK_DRAFT_KEY) || ''; } catch (e) { return ''; } });
@@ -1654,6 +1779,18 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
   const trashed = useMemo(() => notes.filter(n => n.deleted).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0)), [notes]);
   const unprocessed = useMemo(() => active.filter(n => !n.processed), [active]);
   const processed = useMemo(() => active.filter(n => n.processed), [active]);
+
+  // ---- 일괄 선택 (선택 모드) — 화면에 보이는 기록만 대상(접혀 있는 "정리됨"은 제외), 보관 레포 기록은 제외 ----
+  const sel = useSelection();
+  const { busy: bulkBusy, run: runBulk } = useBulkRunner(sel);
+  const visibleNotes = useMemo(() => [...unprocessed, ...(showProcessed ? processed : [])], [unprocessed, processed, showProcessed]);
+  const selectableIds = useMemo(() => visibleNotes.filter(n => !n._readonly).map(n => n.id), [visibleNotes]);
+  const readonlyVisible = visibleNotes.length - selectableIds.length;
+  useEffect(() => { if (sel.active) sel.prune(new Set(selectableIds)); }, [sel.active, selectableIds]);
+  useEffect(() => { if (sel.active && showTrash) sel.stop(); }, [showTrash, sel.active]);
+  const selectedIds = selectableIds.filter(id => sel.ids.has(id));
+  const toggleAllSelection = () => sel.setAll(selectedIds.length >= selectableIds.length ? [] : selectableIds);
+  const noteLabel = n => `빠른 기록 선택: ${(n.text || '사진 기록').replace(/\s+/g, ' ').slice(0, 24)}`;
 
   const handleEditSave = (note, newText, keepImages, newFiles) => {
     onEditSave(note, newText, keepImages, newFiles);
@@ -1719,10 +1856,15 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
           <span className="text-[12px] text-slate-400 dark:text-slate-500 font-mono">
             {showTrash ? `휴지통 ${trashed.length}건` : `${active.length}건`}
           </span>
-          <button onClick={() => setShowTrash(v => !v)}
-            className="text-[12px] font-medium text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 inline-flex items-center gap-1">
-            {showTrash ? <ArrowLeft size={11} /> : <TrashIcon size={11} />} {showTrash ? '목록으로' : `휴지통${trashed.length > 0 ? ` (${trashed.length})` : ''}`}
-          </button>
+          <div className="flex items-center gap-3">
+            {!showTrash && !sel.active && visibleNotes.length > 0 && (
+              <button type="button" onClick={sel.start} className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1 active:scale-95 transition-transform"><ListChecks size={12} /> 선택</button>
+            )}
+            <button onClick={() => setShowTrash(v => !v)}
+              className="text-[12px] font-medium text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 inline-flex items-center gap-1">
+              {showTrash ? <ArrowLeft size={11} /> : <TrashIcon size={11} />} {showTrash ? '목록으로' : `휴지통${trashed.length > 0 ? ` (${trashed.length})` : ''}`}
+            </button>
+          </div>
         </div>
       )}
 
@@ -1762,8 +1904,11 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
           ) : (
             <div className="space-y-2.5">
               {unprocessed.map(note => (
-                <QuickNoteCard key={note.id} cfg={cfg} note={note} leaving={leavingNoteId === note.id}
-                  onEdit={() => onEditNote(note)} onDelete={() => handleDeleteAnimated(note)} onPromote={() => onPromote(note)} onViewEntry={() => onViewEntry(note)} />
+                <SelectableCard key={note.id} selectMode={sel.active} selectable={!note._readonly} selected={sel.ids.has(note.id)}
+                  onToggle={() => sel.toggle(note.id)} label={noteLabel(note)}>
+                  <QuickNoteCard cfg={cfg} note={note} leaving={leavingNoteId === note.id}
+                    onEdit={() => onEditNote(note)} onDelete={() => handleDeleteAnimated(note)} onPromote={() => onPromote(note)} onViewEntry={() => onViewEntry(note)} />
+                </SelectableCard>
               ))}
             </div>
           )}
@@ -1776,14 +1921,26 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
               {showProcessed && (
                 <div className="space-y-2.5 mt-2">
                   {processed.map(note => (
-                    <QuickNoteCard key={note.id} cfg={cfg} note={note} leaving={leavingNoteId === note.id}
-                      onEdit={() => onEditNote(note)} onDelete={() => handleDeleteAnimated(note)} onPromote={() => onPromote(note)} onViewEntry={() => onViewEntry(note)} />
+                    <SelectableCard key={note.id} selectMode={sel.active} selectable={!note._readonly} selected={sel.ids.has(note.id)}
+                      onToggle={() => sel.toggle(note.id)} label={noteLabel(note)}>
+                      <QuickNoteCard cfg={cfg} note={note} leaving={leavingNoteId === note.id}
+                        onEdit={() => onEditNote(note)} onDelete={() => handleDeleteAnimated(note)} onPromote={() => onPromote(note)} onViewEntry={() => onViewEntry(note)} />
+                    </SelectableCard>
                   ))}
                 </div>
               )}
             </div>
           )}
+          {sel.active && <div aria-hidden="true" className="h-44" />}
         </React.Fragment>
+      )}
+
+      {sel.active && !showTrash && (
+        <SelectionBar count={selectedIds.length} total={selectableIds.length} onToggleAll={toggleAllSelection} onCancel={sel.stop} busy={bulkBusy}
+          hint={readonlyVisible > 0 ? `보관 레포 기록 ${readonlyVisible}건은 선택할 수 없어요.` : null}>
+          <BulkButton icon={TrashIcon} label="휴지통으로" danger disabled={bulkBusy || selectedIds.length === 0}
+            onClick={() => runBulk(() => onBulkDelete(selectedIds))} />
+        </SelectionBar>
       )}
 
       <NoteEditModal open={!!editingNote} note={editingNote} cfg={editingNote ? repoCfgFor(cfg, editingNote._repo) : cfg} onClose={() => onEditNote(null)} onSave={handleEditSave} saving={savingEdit} />
@@ -1794,7 +1951,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
 /* ===========================================================
    할 일 탭
 =========================================================== */
-function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos, onAddMemo, onEditMemo, onDeleteMemo }) {
+function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulkComplete, onBulkDelete, memos, onAddMemo, onEditMemo, onDeleteMemo }) {
   // 할 일(일회성, 완료하면 사라짐)과 기억할 것(계속 쌓이는 상시 메모)을 이름부터 헷갈리지 않게 세그먼트로 분리
   const [segment, setSegment] = useState('todo');
   const [text, setText] = useState('');
@@ -1860,6 +2017,19 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos,
     setText(''); setDue('');
   };
 
+  // ---- 일괄 선택 (선택 모드) — 화면에 보이는 항목만 대상(접혀 있는 "완료" 목록은 펼쳤을 때만) ----
+  const sel = useSelection();
+  const { busy: bulkBusy, run: runBulk } = useBulkRunner(sel);
+  const selectableTodos = useMemo(() => [...pending, ...(showDone ? done : [])], [pending, done, showDone]);
+  const selectableIds = useMemo(() => selectableTodos.map(t => t.id), [selectableTodos]);
+  useEffect(() => { if (sel.active) sel.prune(new Set(selectableIds)); }, [sel.active, selectableIds]);
+  useEffect(() => { if (sel.active && segment !== 'todo') sel.stop(); }, [segment, sel.active]);
+  const selectedIds = selectableIds.filter(id => sel.ids.has(id));
+  const selectedTodos = selectableTodos.filter(t => sel.ids.has(t.id));
+  const allSelectedDone = selectedTodos.length > 0 && selectedTodos.every(t => t.done);
+  const toggleAllSelection = () => sel.setAll(selectedIds.length >= selectableIds.length ? [] : selectableIds);
+  const startSelect = () => { setEditingId(null); sel.start(); }; // 수정 중이던 행이 있으면 먼저 닫음
+
   const renderTodoRow = t => {
     const diff = daysUntil(t.due);
     let badge = null;
@@ -1881,25 +2051,27 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos,
       );
     }
     return (
-      <div key={t.id} className={`flex items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors ${completingId === t.id ? 'wj-item-leaving' : ''}`}>
+      <SelectableCard key={t.id} selectMode={sel.active} selected={sel.ids.has(t.id)} onToggle={() => sel.toggle(t.id)} label={`${t.text} 선택`} indicator="left">
+      <div className={`flex items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors ${completingId === t.id ? 'wj-item-leaving' : ''}`}>
         <button onClick={() => handleToggleAnimated(t)} disabled={completingId === t.id} title="완료 처리" aria-label={`"${t.text}" 완료 처리`}
-          className={`shrink-0 -m-1.5 p-1.5 transition-all active:scale-90 ${completingId === t.id ? 'text-emerald-500 wj-check-bounce' : 'text-slate-300 dark:text-slate-600 hover:text-slate-900 dark:hover:text-slate-100'}`}>
+          className={`wj-card-actions shrink-0 -m-1.5 p-1.5 transition-all active:scale-90 ${completingId === t.id ? 'text-emerald-500 wj-check-bounce' : 'text-slate-300 dark:text-slate-600 hover:text-slate-900 dark:hover:text-slate-100'}`}>
           {completingId === t.id ? <CircleCheckBig size={20} /> : <CircleIcon size={20} />}
         </button>
         <span onClick={() => startEdit(t)} className="flex-1 min-w-0 text-[14px] text-slate-700 dark:text-slate-200 break-words cursor-pointer">{t.text}</span>
         {badge && <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${badge.cls}`}>{badge.txt}</span>}
         {t.due && (
-          <button onClick={() => downloadICS(t.text, t.due)} title="캘린더에 추가" aria-label="캘린더에 추가" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-[#5B9DF9] active:scale-90 transition-all shrink-0">
+          <button onClick={() => downloadICS(t.text, t.due)} title="캘린더에 추가" aria-label="캘린더에 추가" className="wj-card-actions p-1.5 text-slate-300 dark:text-slate-600 hover:text-[#5B9DF9] active:scale-90 transition-all shrink-0">
             <CalendarPlus size={14} />
           </button>
         )}
-        <button onClick={() => startEdit(t)} title="수정" aria-label="할 일 수정" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all shrink-0">
+        <button onClick={() => startEdit(t)} title="수정" aria-label="할 일 수정" className="wj-card-actions p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all shrink-0">
           <Pencil size={15} />
         </button>
-        <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0">
+        <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="wj-card-actions p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0">
           <X size={15} />
         </button>
       </div>
+      </SelectableCard>
     );
   };
 
@@ -1940,6 +2112,12 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos,
         </button>
       </div>
 
+      {selectableTodos.length > 0 && !sel.active && (
+        <div className="flex justify-end px-0.5 -mb-1">
+          <button type="button" onClick={startSelect} className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1 active:scale-95 transition-transform"><ListChecks size={12} /> 선택</button>
+        </div>
+      )}
+
       {pending.length === 0 ? (
         <div className="text-center py-10 text-slate-400 dark:text-slate-500 text-[13px]">할 일이 모두 처리됐습니다.</div>
       ) : (
@@ -1968,18 +2146,29 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, memos,
           {showDone && (
             <div className="space-y-1.5 mt-2">
               {done.map(t => (
-                <div key={t.id} className="flex items-center gap-2.5 rounded-lg border border-slate-100 dark:border-slate-800/60 px-3 py-2 opacity-60">
-                  <button onClick={() => onToggle(t)} title="완료 취소" aria-label={`"${t.text}" 완료 취소`} className="text-emerald-500 shrink-0 -m-1.5 p-1.5 active:scale-90 transition-transform"><CircleCheckBig size={18} /></button>
+                <SelectableCard key={t.id} selectMode={sel.active} selected={sel.ids.has(t.id)} onToggle={() => sel.toggle(t.id)} label={`${t.text} 선택`} indicator="left">
+                <div className="flex items-center gap-2.5 rounded-lg border border-slate-100 dark:border-slate-800/60 px-3 py-2 opacity-60">
+                  <button onClick={() => onToggle(t)} title="완료 취소" aria-label={`"${t.text}" 완료 취소`} className="wj-card-actions text-emerald-500 shrink-0 -m-1.5 p-1.5 active:scale-90 transition-transform"><CircleCheckBig size={18} /></button>
                   <div className="flex-1 min-w-0">
                     <span className="block text-[13px] text-slate-500 dark:text-slate-400 line-through break-words">{t.text}</span>
                     {t.completedAt && <span className="block text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5">완료 {fmtDateShort(dateKeyFromDate(new Date(t.completedAt)))} {fmtTime(t.completedAt)}</span>}
                   </div>
-                  <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="p-2 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0"><X size={15} /></button>
+                  <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="wj-card-actions p-2 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all shrink-0"><X size={15} /></button>
                 </div>
+                </SelectableCard>
               ))}
             </div>
           )}
         </div>
+      )}
+      {sel.active && <div aria-hidden="true" className="h-44" />}
+      {sel.active && (
+        <SelectionBar count={selectedIds.length} total={selectableIds.length} onToggleAll={toggleAllSelection} onCancel={sel.stop} busy={bulkBusy}>
+          <BulkButton icon={CircleCheckBig} label={allSelectedDone ? '완료 취소' : '완료 처리'} disabled={bulkBusy || selectedIds.length === 0}
+            onClick={() => runBulk(() => onBulkComplete(selectedIds, !allSelectedDone))} />
+          <BulkButton icon={TrashIcon} label="삭제" danger disabled={bulkBusy || selectedIds.length === 0}
+            onClick={() => runBulk(() => onBulkDelete(selectedIds))} />
+        </SelectionBar>
       )}
       </>
       )}
@@ -2348,7 +2537,7 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
             </div>
             <h3 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words"><HighlightText text={entry.title || '(제목 없음)'} query={query} /></h3>
           </div>
-          <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+          <div className="wj-card-actions flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
             <button onClick={handleFavClick} title={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'} aria-label={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'}
               className={`p-2 rounded-md active:scale-90 transition-all ${entry.favorite ? 'text-[#E8A93B]' : 'text-slate-400 dark:text-slate-500 hover:text-[#E8A93B]'} hover:bg-slate-100 dark:hover:bg-slate-800 ${favBounce ? 'wj-check-bounce' : ''}`}>
               <Star size={16} fill={entry.favorite ? '#E8A93B' : 'none'} />
@@ -2949,7 +3138,7 @@ function DayDetailSheet({ open, dateKey, cfg, categoryMap, dayEntries, dayNotes,
   );
 }
 
-function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, onEdit, onDelete, onToggleFavorite, onRestore, onPermanentDelete, onViewSource, onPreviewEntry, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
+function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, onEdit, onDelete, onToggleFavorite, onBulkDelete, onBulkFavorite, onBulkField, onRestore, onPermanentDelete, onViewSource, onPreviewEntry, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
   const [query, setQuery] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -3060,6 +3249,21 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
   }, [activeEntries, query, projectFilter, categoryFilter, importanceFilter, tagFilter, favoriteOnly, monthFilter, currentMonthKey]);
 
+  // ---- 일괄 선택 (선택 모드) ----
+  const sel = useSelection();
+  const { busy: bulkBusy, run: runBulk } = useBulkRunner(sel);
+  // 보관 레포(읽기 전용) 기록은 일괄 작업 대상에서 제외
+  const selectableIds = useMemo(() => filtered.filter(e => !e._readonly).map(e => e.id), [filtered]);
+  const readonlyInList = filtered.length - selectableIds.length;
+  useEffect(() => { if (sel.active) sel.prune(new Set(selectableIds)); }, [sel.active, selectableIds]);
+  // 목록 보기가 아닌 화면(달력/프로젝트별/하이라이트/휴지통)으로 넘어가면 선택 모드 종료
+  useEffect(() => { if (sel.active && (view !== 'list' || showTrash)) sel.stop(); }, [view, showTrash, sel.active]);
+  // 화면에 보이는 순서대로, 지금 실제로 화면에 있는 것만 — 필터 바꾼 직후 정리(prune) 전 한 프레임에도 안전하게
+  const selectedIds = selectableIds.filter(id => sel.ids.has(id));
+  const selectedEntries = filtered.filter(e => !e._readonly && sel.ids.has(e.id));
+  const allSelectedFav = selectedEntries.length > 0 && selectedEntries.every(e => e.favorite);
+  const toggleAllSelection = () => sel.setAll(selectedIds.length >= selectableIds.length ? [] : selectableIds);
+
   const hasFilters = !!(query || projectFilter || categoryFilter || importanceFilter || tagFilter || favoriteOnly || monthFilter);
   const resetFilters = () => { setQuery(''); setProjectFilter(''); setCategoryFilter(''); setImportanceFilter(''); setTagFilter(''); setFavoriteOnly(false); setMonthFilter(false); };
   // "필터" 버튼에 표시할 개수 — 검색어는 별도로 항상 보이는 칸이라 여기 안 셈
@@ -3156,11 +3360,13 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         </div>
       )}
 
+      {!sel.active && (
       <button onClick={onOpenNew} title="새 일지 작성" aria-label="새 일지 작성"
         className="fixed right-4 sm:right-8 z-40 w-12 h-12 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-lg flex items-center justify-center active:scale-90 transition-all"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}>
         <Plus size={22} strokeWidth={2.5} />
       </button>
+      )}
 
       <div className="flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-1 w-fit max-w-full overflow-x-auto">
         <button onClick={() => setView('list')}
@@ -3295,7 +3501,12 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       {activeEntries.length > 0 && (
         <div className="flex items-center justify-between px-0.5 -mt-1">
           <span className="text-[12px] text-slate-400 dark:text-slate-500 font-mono">{filtered.length}건 표시 중 {hasFilters && `(전체 ${activeEntries.length}건)`}</span>
-          {hasFilters && <button onClick={resetFilters} className="text-[12px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 active:scale-95 transition-transform"><X size={11} /> 필터 초기화</button>}
+          <div className="flex items-center gap-3">
+            {hasFilters && <button onClick={resetFilters} className="text-[12px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 active:scale-95 transition-transform"><X size={11} /> 필터 초기화</button>}
+            {filtered.length > 0 && !sel.active && (
+              <button type="button" onClick={sel.start} className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1 active:scale-95 transition-transform"><ListChecks size={12} /> 선택</button>
+            )}
+          </div>
         </div>
       )}
 
@@ -3322,12 +3533,34 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(entry => <EntryCard key={entry.id} cfg={cfg} entry={entry} query={query} onEdit={onEdit} onDelete={onDelete} onToggleFavorite={onToggleFavorite} onViewSource={onViewSource} categoryMap={categoryMap} />)}
+          {filtered.map(entry => (
+            <SelectableCard key={entry.id} selectMode={sel.active} selectable={!entry._readonly} selected={sel.ids.has(entry.id)}
+              onToggle={() => sel.toggle(entry.id)} label={`${entry.title || '(제목 없음)'} 선택`}>
+              <EntryCard cfg={cfg} entry={entry} query={query} onEdit={onEdit} onDelete={onDelete} onToggleFavorite={onToggleFavorite} onViewSource={onViewSource} categoryMap={categoryMap} />
+            </SelectableCard>
+          ))}
+          {sel.active && <div aria-hidden="true" className="h-44" />}
         </div>
       )}
       </React.Fragment>
       )}
       </React.Fragment>
+      )}
+
+      {sel.active && view === 'list' && (
+        <SelectionBar count={selectedIds.length} total={selectableIds.length} onToggleAll={toggleAllSelection} onCancel={sel.stop} busy={bulkBusy}
+          hint={readonlyInList > 0 ? `보관 레포 기록 ${readonlyInList}건은 선택할 수 없어요.` : null}>
+          <BulkButton icon={Star} label={allSelectedFav ? '즐겨찾기 해제' : '즐겨찾기'} disabled={bulkBusy || selectedIds.length === 0}
+            onClick={() => runBulk(() => onBulkFavorite(selectedIds, !allSelectedFav))} />
+          <BulkSelectControl icon={Code2} label="카테고리 변경" disabled={bulkBusy || selectedIds.length === 0}
+            options={categories.map(c => ({ value: c.id, label: c.label }))}
+            onChange={v => runBulk(() => onBulkField(selectedIds, 'category', v))} />
+          <BulkSelectControl icon={AlertTriangle} label="중요도 변경" disabled={bulkBusy || selectedIds.length === 0}
+            options={IMPORTANCE_LEVELS.map(i => ({ value: i.id, label: `중요도 ${i.label}` }))}
+            onChange={v => runBulk(() => onBulkField(selectedIds, 'importance', v))} />
+          <BulkButton icon={TrashIcon} label="휴지통으로" danger disabled={bulkBusy || selectedIds.length === 0}
+            onClick={() => runBulk(() => onBulkDelete(selectedIds))} />
+        </SelectionBar>
       )}
 
       <DayDetailSheet
@@ -4126,6 +4359,34 @@ function App() {
     handleDeleteNote(note);
   };
 
+  // 일괄 작업(선택 모드) — 여러 건을 한 번의 저장으로 휴지통 이동. 이미 일지로 정리된 기록이 섞여 있으면 확인창에서 알려줌
+  const handleBulkDeleteNotes = async ids => {
+    const idSet = new Set(ids);
+    const targets = quickNotes.filter(n => idSet.has(n.id) && !n.deleted);
+    if (!targets.length) return false;
+    const processedCount = targets.filter(n => n.processed).length;
+    const msg = `선택한 빠른 기록 ${targets.length}건을 휴지통으로 이동할까요?`
+      + (processedCount ? `\n(이 중 ${processedCount}건은 이미 업무일지로 작성된 기록이에요)` : '')
+      + '\n휴지통에서 복원할 수 있어요.';
+    if (!window.confirm(msg)) return false;
+    vibrate(20);
+    try {
+      const now = Date.now();
+      let touched = 0;
+      const merged = await writeActiveNotes(current => {
+        touched = 0;
+        return current.map(n => { if (idSet.has(n.id) && !n.deleted) { touched++; return { ...n, deleted: true, deletedAt: now }; } return n; });
+      }, `빠른 기록 ${targets.length}건 휴지통으로 이동`);
+      setQuickNotes(merged);
+      if (!touched) { showToast('처리할 기록을 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
+      showToast(`빠른 기록 ${touched}건을 휴지통으로 이동했습니다.`);
+      return true;
+    } catch (err) {
+      showToast('삭제 실패: ' + err.message, () => handleBulkDeleteNotes(ids));
+      return false;
+    }
+  };
+
   const handleRestoreNote = async note => {
     try {
       await mutateNote(note, n => ({ ...n, deleted: false, deletedAt: null }), '빠른 기록 복원');
@@ -4242,6 +4503,70 @@ function App() {
     }
   };
 
+  /* ---------- 11-1. 일괄 작업(선택 모드) — 일지 ----------
+     여러 건을 "한 번의 저장"으로 처리함 (건마다 따로 저장하면 느리고, 중간에 실패하면 일부만 바뀐 상태가 남음).
+     transform 안에서 ID로 골라 바꾸기 때문에 409 충돌 재시도 때도 다른 기기의 변경사항이 유지됨.
+     반환값은 실제로 바뀐 건수 — 그사이 다른 기기에서 지워진 항목은 세지 않음.
+     보관 레포 항목은 UI에서 선택 자체가 안 되고, 여기서도 활성 레포(entries) 안에 있는 것만 다룸. */
+  const bulkMutateEntries = async (ids, mutateFn, message) => {
+    const idSet = new Set(ids);
+    let touched = 0;
+    const merged = await writeActiveEntries(current => {
+      touched = 0;
+      return current.map(e => { if (idSet.has(e.id) && !e.deleted) { touched++; return mutateFn(e); } return e; });
+    }, message);
+    setEntries(merged);
+    return touched;
+  };
+  const handleBulkDeleteEntries = async ids => {
+    if (!ids.length) return false;
+    if (!window.confirm(`선택한 일지 ${ids.length}건을 휴지통으로 이동할까요?\n(휴지통에서 복원할 수 있어요)`)) return false;
+    vibrate(20);
+    try {
+      const now = Date.now();
+      const n = await bulkMutateEntries(ids, e => ({ ...e, deleted: true, deletedAt: now }), `일지 ${ids.length}건 휴지통으로 이동`);
+      if (!n) { showToast('처리할 일지를 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
+      showToast(`일지 ${n}건을 휴지통으로 이동했습니다.`);
+      return true;
+    } catch (err) {
+      showToast('삭제 실패: ' + err.message, () => handleBulkDeleteEntries(ids));
+      return false;
+    }
+  };
+  const handleBulkFavoriteEntries = async (ids, value) => {
+    if (!ids.length) return false;
+    try {
+      const now = Date.now();
+      const n = await bulkMutateEntries(ids, e => (!!e.favorite === value ? e : { ...e, favorite: value, updatedAt: now }), `일지 ${ids.length}건 즐겨찾기 ${value ? '추가' : '해제'}`);
+      if (!n) { showToast('처리할 일지를 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
+      showToast(`일지 ${n}건을 즐겨찾기${value ? '에 추가' : '에서 해제'}했습니다.`);
+      return true;
+    } catch (err) {
+      showToast('저장 실패: ' + err.message, () => handleBulkFavoriteEntries(ids, value));
+      return false;
+    }
+  };
+  const BULK_FIELD_LABEL = { category: '카테고리', importance: '중요도' };
+  const handleBulkFieldEntries = async (ids, field, value) => {
+    if (!ids.length || !BULK_FIELD_LABEL[field]) return false;
+    const idSet = new Set(ids);
+    const targets = entries.filter(e => idSet.has(e.id) && !e.deleted);
+    if (targets.length > 0 && targets.every(e => e[field] === value)) {
+      showToast(`선택한 일지는 이미 모두 같은 ${BULK_FIELD_LABEL[field]}예요.`);
+      return false; // 바뀐 게 없으니 선택 상태를 유지
+    }
+    try {
+      const now = Date.now();
+      const n = await bulkMutateEntries(ids, e => (e[field] === value ? e : { ...e, [field]: value, updatedAt: now }), `일지 ${ids.length}건 ${BULK_FIELD_LABEL[field]} 변경`);
+      if (!n) { showToast('처리할 일지를 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
+      showToast(`일지 ${n}건의 ${BULK_FIELD_LABEL[field]}를 "${value}"(으)로 바꿨습니다.`);
+      return true;
+    } catch (err) {
+      showToast('저장 실패: ' + err.message, () => handleBulkFieldEntries(ids, field, value));
+      return false;
+    }
+  };
+
   /* ---------- 12. 할 일(todo) 핸들러 ---------- */
   // 할 일도 entries/notes와 같은 방식으로 — 충돌(409)이면 최신 데이터에 같은 변경을 다시 적용해 자동 재시도
   const writeTodos = (transformFn, message) => todosQueueRef.current(async () => {
@@ -4323,6 +4648,56 @@ function App() {
     } catch (err) {
       showToast('삭제 실패: ' + err.message, () => handleClearDoneTodos());
     }
+  };
+
+  // 일괄 작업(선택 모드) — 완료 처리/완료 취소는 한 번의 저장으로, 삭제는 기존 단건 삭제와 같은 "4.5초 실행취소" 방식으로
+  const handleBulkCompleteTodos = async (ids, done) => {
+    if (!ids.length) return false;
+    const idSet = new Set(ids);
+    try {
+      const now = Date.now();
+      let touched = 0;
+      const merged = await writeTodos(current => {
+        touched = 0;
+        return current.map(t => { if (idSet.has(t.id) && !!t.done !== done) { touched++; return { ...t, done, completedAt: done ? now : null, updatedAt: now }; } return t; });
+      }, `할 일 ${ids.length}건 ${done ? '완료 처리' : '완료 취소'}`);
+      setTodos(merged);
+      if (!touched) { showToast(done ? '이미 모두 완료된 항목이에요.' : '이미 모두 미완료 상태예요.'); return false; }
+      showToast(`할 일 ${touched}건을 ${done ? '완료 처리' : '완료 취소'}했습니다.`);
+      return true;
+    } catch (err) {
+      showToast('저장 실패: ' + err.message, () => handleBulkCompleteTodos(ids, done));
+      return false;
+    }
+  };
+  const handleBulkDeleteTodos = ids => {
+    if (!ids.length) return false;
+    vibrate(20);
+    const idSet = new Set(ids);
+    const setPending = on => setPendingDeleteTodoIds(prev => { const n = new Set(prev); ids.forEach(i => (on ? n.add(i) : n.delete(i))); return n; });
+    setPending(true);
+    const commit = async () => {
+      ids.forEach(i => { delete pendingDeleteTimersRef.current[i]; });
+      try {
+        const merged = await writeTodos(current => current.filter(t => !idSet.has(t.id)), `할 일 ${ids.length}건 삭제`);
+        setTodos(merged);
+      } catch (err) {
+        showToast('삭제 실패: ' + err.message, () => handleBulkDeleteTodos(ids));
+      } finally {
+        setPending(false);
+      }
+    };
+    const timer = setTimeout(commit, 4500);
+    ids.forEach(i => { pendingDeleteTimersRef.current[i] = timer; });
+    showToast(`할 일 ${ids.length}건을 삭제했어요.`, {
+      label: '실행취소', icon: Undo2, duration: 4500,
+      onClick: () => {
+        clearTimeout(timer);
+        ids.forEach(i => { delete pendingDeleteTimersRef.current[i]; });
+        setPending(false);
+      },
+    });
+    return true;
   };
 
   /* ---------- 12-1. 기억할 것(memo) 핸들러 ---------- */
@@ -4569,10 +4944,10 @@ function App() {
             </div>
           ) : (
           <React.Fragment>
-          {tab === 'quick' && <QuickCaptureTab cfg={cfg} notes={displayNotes} phrases={phrases} editingNote={editingNote} onEditNote={setEditingNote} onAdd={handleAddNote} onDelete={handleDeleteNote} onRestore={handleRestoreNote} onPermanentDelete={handlePermanentDeleteNote} onEditSave={handleEditNoteSave} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} uploading={uploading} savingEdit={savingNoteEdit} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
-          {tab === 'todos' && <TodoTab todos={visibleTodos} onAdd={handleAddTodo} onToggle={handleToggleTodo} onDelete={handleDeleteTodo} onEdit={handleEditTodo} onClearDone={handleClearDoneTodos}
+          {tab === 'quick' && <QuickCaptureTab cfg={cfg} notes={displayNotes} phrases={phrases} editingNote={editingNote} onEditNote={setEditingNote} onAdd={handleAddNote} onDelete={handleDeleteNote} onBulkDelete={handleBulkDeleteNotes} onRestore={handleRestoreNote} onPermanentDelete={handlePermanentDeleteNote} onEditSave={handleEditNoteSave} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} uploading={uploading} savingEdit={savingNoteEdit} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
+          {tab === 'todos' && <TodoTab todos={visibleTodos} onAdd={handleAddTodo} onToggle={handleToggleTodo} onDelete={handleDeleteTodo} onEdit={handleEditTodo} onClearDone={handleClearDoneTodos} onBulkComplete={handleBulkCompleteTodos} onBulkDelete={handleBulkDeleteTodos}
             memos={memos} onAddMemo={handleAddMemo} onEditMemo={handleEditMemo} onDeleteMemo={handleDeleteMemo} />}
-          {tab === 'entries' && <EntriesTab cfg={cfg} entries={displayEntries} notes={displayNotes} categories={allCategories} categoryMap={allCategoryMap} onOpenNew={openNewEntry} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onRestore={handleRestoreEntry} onPermanentDelete={handlePermanentDeleteEntry} onViewSource={handleViewSourceNote} onPreviewEntry={entry => setPreviewEntryId(entry.id)} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
+          {tab === 'entries' && <EntriesTab cfg={cfg} entries={displayEntries} notes={displayNotes} categories={allCategories} categoryMap={allCategoryMap} onOpenNew={openNewEntry} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onBulkDelete={handleBulkDeleteEntries} onBulkFavorite={handleBulkFavoriteEntries} onBulkField={handleBulkFieldEntries} onRestore={handleRestoreEntry} onPermanentDelete={handlePermanentDeleteEntry} onViewSource={handleViewSourceNote} onPreviewEntry={entry => setPreviewEntryId(entry.id)} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
           {tab === 'settings' && (
             <div className="space-y-6">
               <div className="space-y-2.5">
