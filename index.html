@@ -74,6 +74,9 @@
   @keyframes wj-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   /* 선택 모드 — 카드 안의 개별 버튼(수정/삭제/즐겨찾기 등)은 감추고, 카드 전체가 "선택 토글" 하나로만 동작 */
   .wj-selecting .wj-card-actions { visibility: hidden; }
+  /* 사용자가 ==로 표시한 강조: 굵게 + 두꺼운 밑줄 (검색어 표시는 주황 배경이라 겹쳐도 구분됨) */
+  em.wj-emph { font-style: normal; font-weight: 700; color: #0f172a; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+  .dark em.wj-emph { color: #f8fafc; }
 
   textarea, input, select { font-family: inherit; }
   textarea:focus, input:focus, select:focus { outline: none; }
@@ -254,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.32 · 2026-09-29';
+const APP_VERSION = 'ver.33 · 2026-10-01';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -1391,10 +1394,12 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
   const [keepImages, setKeepImages] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
   const fileInputRef = useRef(null);
+  const emph = useEmph(() => ({ value: text, set: setText }));
   useBackButtonClose(open, onClose);
 
   useEffect(() => {
     if (open && note) {
+      emph.reset();
       setText(note.text || '');
       setKeepImages(note.imageRefs || []);
       setNewFiles([]);
@@ -1431,8 +1436,12 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
           <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
-          <AutoTextarea value={text} onChange={e => setText(e.target.value)} rows={4}
-            className="w-full px-3 py-2 rounded-lg text-[14px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 resize-none" />
+          <div>
+            <div className="flex items-center justify-end mb-1.5 min-h-[22px]"><EmphButton info={emph.info} onApply={emph.apply} /></div>
+            <AutoTextarea value={text} onChange={e => setText(e.target.value)} rows={4} onSelect={emph.onSelect(0)} onKeyDown={emph.onKeyDown(0)}
+              className="w-full px-3 py-2 rounded-lg text-[14px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 resize-none" />
+            <EmphPreview text={text} />
+          </div>
           {(keepImages.length > 0 || newFiles.length > 0) && (
             <div className="flex items-center gap-2 flex-wrap">
               {keepImages.map((ref, idx) => {
@@ -1680,7 +1689,7 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
             </button>
           </div>
         </div>
-        {note.text && <p className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed mt-1.5 whitespace-pre-wrap break-words">{note.text}</p>}
+        {note.text && <p className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed mt-1.5 whitespace-pre-wrap break-words"><HighlightText text={note.text} query="" /></p>}
         {note.imageRefs && note.imageRefs.length > 0 && (
           <div className="mt-2.5">
             <PhotoReveal cfg={imgCfg} refs={note.imageRefs} thumbClassName="w-16 h-16 rounded-md object-cover border border-slate-200 dark:border-slate-700" />
@@ -1736,6 +1745,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
   // 빠른 기록 입력창 임시저장 — 사진 파일은 로컬 저장이 안 돼서 텍스트만 대상으로 함
   const QUICK_DRAFT_KEY = 'wj-draft-quick-note';
   const [text, setText] = useState(() => { try { return localStorage.getItem(QUICK_DRAFT_KEY) || ''; } catch (e) { return ''; } });
+  const composerEmph = useEmph(() => ({ value: text, set: setText }));
   const [files, setFiles] = useState([]);
   const [showTrash, setShowTrash] = useState(false);
   const [showProcessed, setShowProcessed] = useState(false);
@@ -1790,7 +1800,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
   useEffect(() => { if (sel.active && showTrash) sel.stop(); }, [showTrash, sel.active]);
   const selectedIds = selectableIds.filter(id => sel.ids.has(id));
   const toggleAllSelection = () => sel.setAll(selectedIds.length >= selectableIds.length ? [] : selectableIds);
-  const noteLabel = n => `빠른 기록 선택: ${(n.text || '사진 기록').replace(/\s+/g, ' ').slice(0, 24)}`;
+  const noteLabel = n => `빠른 기록 선택: ${stripEmph(n.text || '사진 기록').replace(/\s+/g, ' ').slice(0, 24)}`;
 
   const handleEditSave = (note, newText, keepImages, newFiles) => {
     onEditSave(note, newText, keepImages, newFiles);
@@ -1813,10 +1823,12 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
         <AutoTextarea
           value={text}
           onChange={e => setText(e.target.value)}
+          onSelect={composerEmph.onSelect(0)} onKeyDown={composerEmph.onKeyDown(0)}
           placeholder="보고 들은 걸 바로 적어두세요…"
           rows={2}
           className="w-full px-1 py-1 text-[14px] bg-transparent text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none"
         />
+        <EmphPreview text={text} />
         {files.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap mt-1 mb-2 px-1">
             {files.map((f, i) => (
@@ -1830,11 +1842,14 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
           </div>
         )}
         <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800">
-          <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title="사진 첨부" aria-label="사진 첨부"
-            className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all">
-            <Camera size={17} />
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title="사진 첨부" aria-label="사진 첨부"
+              className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all">
+              <Camera size={17} />
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
+            <EmphButton compact info={composerEmph.info} onApply={composerEmph.apply} />
+          </div>
           <button onClick={handleSend} disabled={uploading || (!text.trim() && files.length === 0)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100 transition-all">
             {uploading ? <LoaderCircle size={13} className="wj-spin" /> : <Send size={13} />}
@@ -1887,7 +1902,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
                     <button onClick={() => onPermanentDelete(note)} title="영구 삭제" aria-label="빠른 기록 영구 삭제" className="p-2 rounded text-slate-400 dark:text-slate-500 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
                   </div>
                 </div>
-                {note.text && <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 break-words">{note.text}</p>}
+                {note.text && <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 break-words"><HighlightText text={note.text} query="" /></p>}
               </div>
               );
             })}
@@ -2352,6 +2367,170 @@ function AutoTextarea({ className = '', style, value, ...rest }) {
   );
 }
 
+/* ---------- 강조(굵게+밑줄) ----------
+   글 안에 ==강조할 말== 형태로 저장한다(저장 형식·기존 데이터는 그대로, 글자만 늘어남).
+   - 여는/닫는 ==의 안쪽 첫·끝 글자는 공백이 아니어야 인식됨 → "a == b" 같은 비교식은 강조로 오인되지 않음
+   - 짝이 안 맞는 ==는 그냥 글자로 남음(깨지지 않음)
+   - 화면에선 HighlightText가 ==를 숨기고 굵게+밑줄로 그림, 검색은 ==를 무시하고 맞춤 */
+const EMPH_RE = /==([^\s=](?:[\s\S]*?[^\s=])??)==/g; // ??: 가장 짧게 맞춤 → "==a== b ==c=="가 하나로 합쳐지지 않음
+function parseEmph(raw) {
+  const s = raw == null ? '' : String(raw);
+  const segs = [];              // [{text, emph}] — 화면 표시용
+  const map = new Array(s.length + 1); // 원문 위치 → 마커를 뺀 글 위치
+  const mask = [];              // 마커를 뺀 글의 글자마다 강조 여부
+  let plain = '';
+  let last = 0;
+  const addPlain = (from, to) => {
+    for (let k = from; k < to; k++) { map[k] = plain.length + (k - from); mask.push(false); }
+    if (to > from) { segs.push({ text: s.slice(from, to), emph: false }); plain += s.slice(from, to); }
+  };
+  EMPH_RE.lastIndex = 0;
+  let m;
+  while ((m = EMPH_RE.exec(s)) !== null) {
+    addPlain(last, m.index);
+    const inner = m[1];
+    const base = plain.length;
+    map[m.index] = base; map[m.index + 1] = base;
+    for (let j = 0; j < inner.length; j++) { map[m.index + 2 + j] = base + j; mask.push(true); }
+    const endIdx = m.index + 2 + inner.length;
+    map[endIdx] = base + inner.length; map[endIdx + 1] = base + inner.length;
+    segs.push({ text: inner, emph: true });
+    plain += inner;
+    last = m.index + m[0].length;
+  }
+  addPlain(last, s.length);
+  map[s.length] = plain.length;
+  return { segs, plain, mask, map };
+}
+const stripEmph = raw => (raw && String(raw).indexOf('==') !== -1 ? parseEmph(raw).plain : (raw == null ? '' : String(raw)));
+const hasEmph = raw => !!raw && String(raw).indexOf('==') !== -1 && parseEmph(raw).segs.some(g => g.emph);
+
+// 선택 영역(원문 기준)을 마커를 뺀 글 기준 [a,b)로 바꾸고 양끝 공백은 제외
+function emphRange(p, start, end) {
+  const n = p.map.length - 1;
+  const cl = v => Math.max(0, Math.min(n, v | 0));
+  let a = p.map[cl(Math.min(start, end))], b = p.map[cl(Math.max(start, end))];
+  while (a < b && /\s/.test(p.plain[a])) a++;
+  while (b > a && /\s/.test(p.plain[b - 1])) b--;
+  return [a, b];
+}
+function emphInfo(raw, start, end) {
+  if (!raw || start == null || end == null) return { can: false, active: false };
+  const p = parseEmph(raw);
+  const [a, b] = emphRange(p, start, end);
+  if (a >= b) return { can: false, active: false };
+  let all = true;
+  for (let i = a; i < b; i++) if (!/\s/.test(p.plain[i]) && !p.mask[i]) { all = false; break; }
+  return { can: toggleEmph(raw, start, end) !== null, active: all };
+}
+// 선택한 글자를 강조로 바꾸거나(이미 전부 강조면) 해제. 결과 글과, 바뀐 뒤 선택 위치를 돌려줌. 선택이 없으면 null
+function toggleEmph(raw, start, end) {
+  const p = parseEmph(raw);
+  const [a, b] = emphRange(p, start, end);
+  if (a >= b) return null;
+  let all = true;
+  for (let i = a; i < b; i++) if (!/\s/.test(p.plain[i]) && !p.mask[i]) { all = false; break; }
+  const mask = p.mask.slice();
+  for (let i = a; i < b; i++) mask[i] = !all;
+  // 글 + 강조 구간으로 다시 합치기 (강조 구간 양끝 공백은 밖으로 뺌: 안 그러면 ==가 인식 안 됨)
+  const plain = p.plain;
+  const outIdx = new Array(plain.length + 1);
+  let out = '';
+  let i = 0;
+  while (i < plain.length) {
+    if (!mask[i]) { outIdx[i] = out.length; out += plain[i]; i++; continue; }
+    let j = i;
+    while (j < plain.length && mask[j]) j++;
+    let rs = i, re = j;
+    while (rs < re && /\s/.test(plain[rs])) rs++;
+    while (re > rs && /\s/.test(plain[re - 1])) re--;
+    for (let k = i; k < rs; k++) { outIdx[k] = out.length; out += plain[k]; }
+    if (re > rs) {
+      out += '==';
+      for (let k = rs; k < re; k++) { outIdx[k] = out.length; out += plain[k]; }
+      out += '==';
+    }
+    for (let k = re; k < j; k++) { outIdx[k] = out.length; out += plain[k]; }
+    i = j;
+  }
+  outIdx[plain.length] = out.length;
+  // 안전장치: 다시 읽었을 때 글 내용과 강조 구간이 의도한 그대로가 아니면(예: '=' 글자만 골라 감싸서 ==가 인식 안 되는 경우) 아무것도 안 함
+  const chk = parseEmph(out);
+  if (chk.plain !== plain || chk.mask.length !== mask.length || chk.mask.some((v, i) => v !== mask[i] && /\S/.test(plain[i]))) return null;
+  return { value: out, s: outIdx[a], e: outIdx[b - 1] + 1 };
+}
+
+// 입력칸 위의 [강조] 버튼 동작: 선택한 글자를 ==로 감싸거나 풀어줌. 입력칸이 여러 개(핵심 내용 줄들)여도 하나로 처리하려고
+// key로 "어느 칸인지"를 구분하고, resolve(key) → {value, set}으로 그 칸의 값/저장 함수를 얻음
+function useEmph(resolve) {
+  const elRef = useRef(null);
+  const [sel, setSel] = useState(null);
+  const onSelect = key => e => {
+    const t = e.target;
+    elRef.current = t;
+    setSel(prev => (prev && prev.key === key && prev.s === t.selectionStart && prev.e === t.selectionEnd) ? prev : { key, s: t.selectionStart, e: t.selectionEnd });
+  };
+  const cur = sel ? resolve(sel.key) : null;
+  const info = cur ? emphInfo(cur.value, sel.s, sel.e) : { can: false, active: false };
+  const run = (key, el) => {
+    const c = resolve(key);
+    if (!c || !el) return;
+    const r = toggleEmph(c.value, el.selectionStart, el.selectionEnd);
+    if (!r) return;
+    c.set(r.value);
+    setSel({ key, s: r.s, e: r.e });
+    requestAnimationFrame(() => { try { el.focus({ preventScroll: true }); el.setSelectionRange(r.s, r.e); } catch (_) {} });
+  };
+  const apply = () => { if (sel) run(sel.key, elRef.current); };
+  const onKeyDown = key => e => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 'b') { e.preventDefault(); run(key, e.target); }
+  };
+  const reset = () => setSel(null);
+  return { onSelect, onKeyDown, info, apply, reset };
+}
+function EmphButton({ info, onApply, compact }) {
+  const label = info.active ? '강조 해제' : '강조';
+  const tone = !info.can
+    ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-default'
+    : info.active
+      ? 'border-slate-900 dark:border-slate-100 text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95'
+      : 'border-transparent bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 active:scale-95';
+  return (
+    <button type="button" disabled={!info.can} onClick={onApply}
+      onMouseDown={e => e.preventDefault()} // 눌러도 입력칸의 글자 선택이 풀리지 않게
+      title={info.can ? (info.active ? '선택한 글자의 강조 해제 (Ctrl+B)' : '선택한 글자를 굵게+밑줄로 강조 (Ctrl+B)') : '글자를 먼저 드래그해서 선택하세요'}
+      aria-label={info.active ? '선택한 글자 강조 해제' : '선택한 글자 강조'}
+      className={`shrink-0 inline-flex items-center gap-1 rounded-md border text-[11px] font-medium transition-all ${compact ? 'px-1.5 py-1' : 'px-2 py-0.5'} ${tone}`}>
+      <span className="font-bold underline decoration-2 underline-offset-2 leading-none">B</span>{!compact && label}
+    </button>
+  );
+}
+// 입력칸 안은 일반 글자라 굵기/밑줄을 못 보여주므로, 강조가 들어 있으면 실제 모양을 아래에 미리 보여줌
+function EmphPreview({ text }) {
+  if (!hasEmph(text)) return null;
+  return (
+    <div data-testid="emph-preview" className="mt-1.5 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 px-2.5 py-1.5 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">
+      <span className="block text-[10px] text-slate-400 dark:text-slate-500 mb-0.5">미리보기</span>
+      <HighlightText text={text} query="" />
+    </div>
+  );
+}
+// 제목줄(+[강조] 버튼) + 입력칸 + 미리보기가 한 묶음인 입력 필드
+function EmphTextarea({ label, value, onValueChange, className, rows, placeholder }) {
+  const emph = useEmph(() => ({ value, set: onValueChange }));
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[22px]">
+        <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">{label}</label>
+        <EmphButton info={emph.info} onApply={emph.apply} />
+      </div>
+      <AutoTextarea rows={rows} value={value} placeholder={placeholder} className={className}
+        onChange={e => onValueChange(e.target.value)} onSelect={emph.onSelect(0)} onKeyDown={emph.onKeyDown(0)} />
+      <EmphPreview text={value} />
+    </div>
+  );
+}
+
 // 자유 입력은 그대로 허용하면서, 기존에 썼던 값들을 밑에 후보로 보여주는 콤보박스.
 // 프로젝트명 같은 "웬만하면 기존 걸 재사용해야 하는" 필드의 오타로 인한 데이터 분산을 줄이기 위한 용도.
 function ComboBoxInput({ value, onChange, suggestions, placeholder, autoFocus, inputRef }) {
@@ -2451,22 +2630,44 @@ function SelectPill({ value, onChange, options, placeholder, icon: Ico }) {
 }
 
 // 검색어와 겹치는 부분만 다른 색으로 표시해주는 컴포넌트 (대소문자 구분 없이, 텍스트 안에서 검색어가 나오는 곳마다 전부 표시)
+// + 사용자가 ==로 표시해둔 강조(굵게+밑줄)도 여기서 그림: 강조는 글자 모양, 검색은 배경색이라 겹쳐도 둘 다 보임
 function HighlightText({ text, query }) {
   const s = text == null ? '' : String(text);
   const q = (query || '').trim();
-  if (!q) return s;
-  const lowerS = s.toLowerCase();
-  const lowerQ = q.toLowerCase();
-  const parts = [];
-  let i = 0;
-  while (i < s.length) {
-    const hit = lowerS.indexOf(lowerQ, i);
-    if (hit === -1) { parts.push(s.slice(i)); break; }
-    if (hit > i) parts.push(s.slice(i, hit));
-    parts.push(<mark key={hit} className="bg-[#E8A93B]/40 text-slate-900 dark:text-[#FDE9C4] rounded-[2px] px-0.5">{s.slice(hit, hit + q.length)}</mark>);
-    i = hit + q.length;
+  const emphOn = s.indexOf('==') !== -1;
+  if (!q && !emphOn) return s;
+  const { segs, plain } = emphOn ? parseEmph(s) : { segs: [{ text: s, emph: false }], plain: s };
+  // 검색어가 나오는 곳을 (마커를 뺀) 글 기준 [시작,끝) 구간으로 모음
+  const hits = [];
+  if (q) {
+    const lowerS = plain.toLowerCase();
+    const lowerQ = q.toLowerCase();
+    let i = 0;
+    while (i < lowerS.length) {
+      const h = lowerS.indexOf(lowerQ, i);
+      if (h === -1) break;
+      hits.push([h, h + q.length]);
+      i = h + q.length;
+    }
   }
-  return parts;
+  const out = [];
+  let pos = 0;
+  segs.forEach((g, si) => {
+    const start = pos, end = pos + g.text.length;
+    pos = end;
+    const kids = [];
+    let cur = start;
+    hits.forEach(([hs, he]) => {
+      const a = Math.max(hs, start), b = Math.min(he, end);
+      if (a >= b) return;
+      if (a > cur) kids.push(plain.slice(cur, a));
+      kids.push(<mark key={`${si}-${a}`} className="bg-[#E8A93B]/40 text-slate-900 dark:text-[#FDE9C4] rounded-[2px] px-0.5">{plain.slice(a, b)}</mark>);
+      cur = b;
+    });
+    if (cur < end) kids.push(plain.slice(cur, end));
+    out.push(g.emph ? <em key={si} className="wj-emph">{kids}</em> : <React.Fragment key={si}>{kids}</React.Fragment>);
+  });
+  return out;
 }
 
 // 사내망 경로처럼 클릭으로는 잘 안 열리는 값을 클립보드로 복사해주는 버튼 — 복사 성공하면 잠깐 "복사됨"으로 바뀜
@@ -2746,6 +2947,11 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // [강조] 버튼용(핵심 내용 줄들이 한 버튼을 같이 씀). 훅이라 아래 'if (!open) return null'보다 위에 있어야 함
+  const bulletEmph = useEmph(idx => ({ value: form.bullets[idx] || '', set: v => setForm(f => { const next = [...f.bullets]; next[idx] = v; return { ...f, bullets: next }; }) }));
+
+  useEffect(() => { if (open) bulletEmph.reset(); }, [open]);
+
   if (!open) return null;
 
   const imgCfg = repoCfgFor(cfg, (initial && initial._repo) || (prefillNote && prefillNote._repo));
@@ -2760,7 +2966,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
 
   const updateBullet = (idx, value) => setForm(f => { const next = [...f.bullets]; next[idx] = value; return { ...f, bullets: next }; });
   const addBullet = () => setForm(f => ({ ...f, bullets: [...f.bullets, ''] }));
-  const removeBullet = idx => setForm(f => ({ ...f, bullets: f.bullets.filter((_, i) => i !== idx) }));
+  const removeBullet = idx => { bulletEmph.reset(); setForm(f => ({ ...f, bullets: f.bullets.filter((_, i) => i !== idx) })); };
   const updateLink = (idx, field, value) => setForm(f => { const next = [...f.links]; next[idx] = { ...next[idx], [field]: value }; return { ...f, links: next }; });
   const addLink = () => setForm(f => ({ ...f, links: [...f.links, { label: '', url: '' }] }));
   const removeLink = idx => setForm(f => ({ ...f, links: f.links.filter((_, i) => i !== idx) }));
@@ -2845,44 +3051,39 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           </div>
 
           <div>
-            <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5"><ListChecks size={12} /> 주요 성과 및 한 일</label>
+            <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[22px]">
+              <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400"><ListChecks size={12} /> 주요 성과 및 한 일</label>
+              <EmphButton info={bulletEmph.info} onApply={bulletEmph.apply} />
+            </div>
             <div className="space-y-1.5">
               {form.bullets.map((b, idx) => (
-                <div key={idx} className="flex items-center gap-1.5">
-                  <span className="w-1 h-1 rounded-full bg-slate-400 shrink-0" />
-                  <input type="text" value={b} onChange={e => updateBullet(idx, e.target.value)} placeholder="한 일을 입력하세요"
-                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-                  {form.bullets.length > 1 && <button type="button" onClick={() => removeBullet(idx)} title="항목 삭제" aria-label="항목 삭제" className="p-2 text-slate-400 hover:text-red-500 shrink-0 active:scale-90 transition-transform"><X size={15} /></button>}
+                <div key={idx}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-slate-400 shrink-0" />
+                    <input type="text" value={b} onChange={e => updateBullet(idx, e.target.value)} placeholder="한 일을 입력하세요"
+                      onSelect={bulletEmph.onSelect(idx)} onKeyDown={bulletEmph.onKeyDown(idx)}
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+                    {form.bullets.length > 1 && <button type="button" onClick={() => removeBullet(idx)} title="항목 삭제" aria-label="항목 삭제" className="p-2 text-slate-400 hover:text-red-500 shrink-0 active:scale-90 transition-transform"><X size={15} /></button>}
+                  </div>
+                  {hasEmph(b) && <div className="ml-2.5"><EmphPreview text={b} /></div>}
                 </div>
               ))}
             </div>
             <button type="button" onClick={addBullet} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:underline active:scale-95 transition-transform"><Plus size={12} /> 항목 추가</button>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">개요 <span className="text-slate-400 font-normal">(어디서 왔는지, 어떤 배경·맥락인지)</span></label>
-            <AutoTextarea rows={2} value={form.overview} onChange={e => setForm(f => ({ ...f, overview: e.target.value }))} placeholder="예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등"
-              className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
-          </div>
+          <EmphTextarea label={<>개요 <span className="text-slate-400 font-normal">(어디서 왔는지, 어떤 배경·맥락인지)</span></>} rows={2} value={form.overview} onValueChange={v => setForm(f => ({ ...f, overview: v }))} placeholder="예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등"
+            className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">발생 문제</label>
-              <AutoTextarea rows={3} value={form.problem} onChange={e => setForm(f => ({ ...f, problem: e.target.value }))} placeholder="어떤 문제가 있었나요?"
-                className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">해결 과정</label>
-              <AutoTextarea rows={3} value={form.solution} onChange={e => setForm(f => ({ ...f, solution: e.target.value }))} placeholder="어떻게 해결했나요?"
-                className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
-            </div>
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5"><Lightbulb size={12} /> 배운 점</label>
-            <AutoTextarea rows={2} value={form.lesson} onChange={e => setForm(f => ({ ...f, lesson: e.target.value }))} placeholder="이 경험에서 얻은 인사이트를 적어보세요"
+            <EmphTextarea label="발생 문제" rows={3} value={form.problem} onValueChange={v => setForm(f => ({ ...f, problem: v }))} placeholder="어떤 문제가 있었나요?"
+              className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
+            <EmphTextarea label="해결 과정" rows={3} value={form.solution} onValueChange={v => setForm(f => ({ ...f, solution: v }))} placeholder="어떻게 해결했나요?"
               className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
           </div>
+
+          <EmphTextarea label={<><Lightbulb size={12} /> 배운 점</>} rows={2} value={form.lesson} onValueChange={v => setForm(f => ({ ...f, lesson: v }))} placeholder="이 경험에서 얻은 인사이트를 적어보세요"
+            className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
 
           <div>
             <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5"><Link2 size={12} /> 참고 링크</label>
@@ -3091,7 +3292,7 @@ function DayDetailSheet({ open, dateKey, cfg, categoryMap, dayEntries, dayNotes,
                             </div>
                             <div className="text-[13px] font-medium text-slate-800 dark:text-slate-100">{entry.title || '(제목 없음)'}</div>
                             {(entry.problem || entry.solution) && (
-                              <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">{entry.problem || entry.solution}</p>
+                              <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed"><HighlightText text={entry.problem || entry.solution} query="" /></p>
                             )}
                           </button>
                           {entry.images && entry.images.length > 0 && (
@@ -3118,7 +3319,7 @@ function DayDetailSheet({ open, dateKey, cfg, categoryMap, dayEntries, dayNotes,
                             <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">{fmtTime(note.createdAt)}</span>
                             {note.processed && <span className="text-[10px] text-emerald-500 flex items-center gap-0.5"><CircleCheckBig size={10} /> 정리됨</span>}
                           </div>
-                          {note.text && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words">{note.text}</p>}
+                          {note.text && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words"><HighlightText text={note.text} query="" /></p>}
                           {note.imageRefs && note.imageRefs.length > 0 && (
                             <div className="mt-2">
                               <PhotoReveal cfg={imgCfg} refs={note.imageRefs} limit={4} thumbClassName="w-10 h-10 rounded object-cover border border-slate-200 dark:border-slate-700" />
@@ -3243,7 +3444,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       .filter(e => !monthFilter || (e.date || '').startsWith(currentMonthKey))
       .filter(e => {
         if (!q) return true;
-        const hay = [e.title, e.overview, e.problem, e.solution, e.lesson, ...(e.bullets || []), ...(e.tags || [])].join(' ').toLowerCase();
+        const hay = [e.title, e.overview, e.problem, e.solution, e.lesson, ...(e.bullets || []), ...(e.tags || [])].map(stripEmph).join(' ').toLowerCase();
         return hay.includes(q);
       })
       .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
@@ -3317,7 +3518,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                 </div>
                 <div className="text-[13px] font-medium text-slate-700 dark:text-slate-200 mt-1 break-words">{entry.title || '(제목 없음)'}</div>
                 {(entry.problem || entry.solution) && (
-                  <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1 line-clamp-2 break-words">{entry.problem || entry.solution}</p>
+                  <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1 line-clamp-2 break-words"><HighlightText text={entry.problem || entry.solution} query="" /></p>
                 )}
               </div>
             ))}
@@ -3461,8 +3662,8 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                           {entry.favorite && <Star size={12} className="text-[#E8A93B]" fill="#E8A93B" />}
                           {entry._readonly && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">보관 레포</span>}
                         </div>
-                        {entry.problem && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2"><span className="text-slate-400 dark:text-slate-500">문제 ·</span> {entry.problem}</p>}
-                        {entry.solution && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 mt-0.5"><span className="text-slate-400 dark:text-slate-500">해결 ·</span> {entry.solution}</p>}
+                        {entry.problem && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2"><span className="text-slate-400 dark:text-slate-500">문제 ·</span> <HighlightText text={entry.problem} query="" /></p>}
+                        {entry.solution && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 mt-0.5"><span className="text-slate-400 dark:text-slate-500">해결 ·</span> <HighlightText text={entry.solution} query="" /></p>}
                       </button>
                     </div>
                   );
