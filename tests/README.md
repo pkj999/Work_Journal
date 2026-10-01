@@ -24,3 +24,5 @@ Chromium 경로가 기본(`/opt/pw-browsers/chromium`)과 다르면 `CHROMIUM_PA
 - `seed.js` — 테스트용 기본 데이터
 - `baseline.js` — 기존 기능(검색, 단건 삭제, 즐겨찾기, 빠른 기록, 할 일, 409 충돌) 회귀
 - `bulk.js`, `bulk2.js` — 일괄 선택(선택 모드) 기능 + 엣지 케이스
+- `emph-unit.js` — 강조(==) 파싱/토글 로직 단위 테스트(index.html의 실제 코드를 꺼내서 실행, 무작위 3000회 포함)
+- `emph-ui.js` — 강조 기능 UI: 입력 → 저장 → 카드 표시 → 검색과 겹침 → 빠른 기록 → 모바일/다크
