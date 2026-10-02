@@ -20,22 +20,15 @@ const { test, summary, assert, gotoEntries, gotoQuick, gotoTodos, settle } = req
     assert.strictEqual(await page.locator('text=프로젝트B').count(), 0);
   });
 
-  await test('일지 단건 삭제: 확인창 → 휴지통 이동이 서버에 저장됨', async ({ page, fake, dialogs }) => {
+  await test('일지 단건 삭제: 확인창 없이 휴지통 이동이 서버에 저장되고 [실행취소]가 뜸(규칙 1)', async ({ page, fake, dialogs }) => {
     await gotoEntries(page);
     await page.locator('[aria-label="일지 삭제"]').first().click();
     await settle(page);
-    assert.ok(dialogs.some(d => d.includes('휴지통으로 이동')), '확인창이 떠야 함');
+    assert.strictEqual(dialogs.length, 0, '확인창이 뜨면 안 됨(되돌리기 토스트로 대체)');
     const saved = fake.get('data/entries.json');
     assert.strictEqual(saved.filter(e => e.deleted).length, 2);
     assert.strictEqual(fake.puts.length, 1);
-  });
-
-  await test('일지 단건 삭제: 확인창 취소하면 아무 것도 안 바뀜', async ({ page, fake, setDialogAnswer }) => {
-    await gotoEntries(page);
-    setDialogAnswer(false);
-    await page.locator('[aria-label="일지 삭제"]').first().click();
-    await settle(page);
-    assert.strictEqual(fake.puts.length, 0);
+    assert.ok(await page.getByRole('button', { name: '실행취소' }).count() >= 1);
   });
 
   await test('즐겨찾기 토글이 저장됨', async ({ page, fake }) => {
