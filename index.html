@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.37 · 2026-10-02';
+const APP_VERSION = 'ver.38 · 2026-10-02';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -881,8 +881,8 @@ function Toast({ toast, onAction }) {
   if (!toast || !toast.msg) return null;
   const ActionIcon = toast.action && toast.action.icon;
   return (
-    <div className="fixed inset-x-0 bottom-5 z-[70] flex justify-center px-4 pointer-events-none"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div className="fixed inset-x-0 z-[70] flex justify-center px-4 pointer-events-none"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 102px)' }}> {/* 하단 탭 바 위에 뜸 */}
       <div className="wj-modal-pop pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-lg bg-slate-900 dark:bg-slate-100 text-slate-100 dark:text-slate-900 text-[13px] font-medium shadow-xl max-w-[90vw] text-center">
         <span>{toast.msg}</span>
         {toast.action && (
@@ -1444,11 +1444,11 @@ function NoteEditModal({ open, note, cfg, onClose, onSave, saving }) {
       <form onSubmit={handleSubmit} className="wj-modal-pop sm:[animation:wj-drawer-in_.22s_cubic-bezier(.32,.72,0,1)_both] relative w-full sm:w-[38vw] sm:min-w-[480px] sm:max-w-[640px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 sm:border-y-0 sm:border-r-0 shadow-2xl my-0 max-h-[100vh] sm:max-h-none flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">빠른 기록 수정</h2>
-          <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
+          <IconButton label="닫기" onClick={onClose}><X size={16} /></IconButton>
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
           <div>
-            <div className="flex items-center justify-end mb-1.5 min-h-[22px]"><EmphButton info={emph.info} onApply={emph.apply} /></div>
+            <div className="flex items-center justify-end mb-1 min-h-8"><EmphButton info={emph.info} onApply={emph.apply} /></div>
             <AutoTextarea value={text} onChange={e => setText(e.target.value)} rows={4} onSelect={emph.onSelect(0)} onKeyDown={emph.onKeyDown(0)}
               className="w-full px-3 py-2 rounded-lg text-[14px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 resize-none" />
             <EmphPreview text={text} />
@@ -1616,6 +1616,34 @@ function BulkSelectControl({ icon: Ico, label, options, onChange, disabled }) {
 }
 
 // 스와이프해서 삭제 — 모바일 터치로 왼쪽으로 밀면 삭제, 데스크탑에선 그냥 감싸기만 함 (기존 삭제 버튼은 그대로 유지)
+/* 카드·목록 행의 아이콘 버튼 공용 (docs/DESIGN_RULES.md 2장): 터치 영역 40×40, 아이콘 16px, 색은 slate-500 이상.
+   같은 모양의 버튼을 줄마다 복사해서 만들지 않고 이걸 쓴다. tone: default / danger(삭제) / accent(캘린더) / star-on(즐겨찾기 켜짐) */
+const ICON_BTN_TONE = {
+  default: 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800',
+  danger: 'text-slate-500 dark:text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10',
+  accent: 'text-slate-500 dark:text-slate-400 hover:text-[#5B9DF9] hover:bg-slate-100 dark:hover:bg-slate-800',
+  'star-on': 'text-[#E8A93B] hover:bg-slate-100 dark:hover:bg-slate-800',
+  success: 'text-emerald-500 hover:bg-slate-100 dark:hover:bg-slate-800',
+};
+function IconButton({ label, title, onClick, tone = 'default', className = '', children, ...rest }) {
+  return (
+    <button type="button" onClick={onClick} title={title || label} aria-label={label}
+      className={`inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-md active:scale-90 transition-all disabled:opacity-50 ${ICON_BTN_TONE[tone] || ICON_BTN_TONE.default} ${className}`} {...rest}>
+      {children}
+    </button>
+  );
+}
+
+/* 목록 위 도구 줄·폼의 작은 텍스트 버튼 공용 ([선택] [휴지통] [필터 초기화] [+ 항목 추가] 등): 눌리는 영역 높이 40px, 글자 12px */
+function TextAction({ icon: Ico, onClick, children, className = '', ...rest }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={`inline-flex items-center gap-1 min-h-10 px-2 rounded-md text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 transition-all ${className}`} {...rest}>
+      {Ico && <Ico size={12} />}{children}
+    </button>
+  );
+}
+
 function SwipeToDelete({ onDelete, disabled, children }) {
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -1690,13 +1718,9 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
               </span>
             )}
           </span>
-          <div className="wj-card-actions flex items-center gap-1">
-            <button onClick={onEdit} title="수정" aria-label="빠른 기록 수정" className="p-2 rounded text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all">
-              <Pencil size={15} />
-            </button>
-            <button onClick={onDelete} title="삭제" aria-label="빠른 기록 삭제" className="p-2 rounded text-slate-500 dark:text-slate-400 hover:text-red-500 active:scale-90 transition-all">
-              <Trash2 size={15} />
-            </button>
+          <div className="wj-card-actions flex items-center -my-2 -mr-2">
+            <IconButton label="빠른 기록 수정" title="수정" onClick={onEdit}><Pencil size={16} /></IconButton>
+            <IconButton label="빠른 기록 삭제" title="삭제" tone="danger" onClick={onDelete}><Trash2 size={16} /></IconButton>
           </div>
         </div>
         {note.text && <p className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed mt-1.5 whitespace-pre-wrap break-words"><HighlightText text={note.text} query="" /></p>}
@@ -1848,12 +1872,9 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
         )}
         <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-1.5">
-            <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title="사진 첨부" aria-label="사진 첨부"
-              className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all">
-              <Camera size={17} />
-            </button>
+            <IconButton label="사진 첨부" onClick={() => fileInputRef.current && fileInputRef.current.click()}><Camera size={16} /></IconButton>
             <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
-            <EmphButton compact info={composerEmph.info} onApply={composerEmph.apply} />
+            <EmphButton info={composerEmph.info} onApply={composerEmph.apply} />
           </div>
           <button onClick={handleSend} disabled={uploading || (!text.trim() && files.length === 0)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100 transition-all">
@@ -1876,14 +1897,10 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
           <span className="text-[12px] text-slate-500 dark:text-slate-400 font-mono">
             {showTrash ? `휴지통 ${trashed.length}건` : `${active.length}건`}
           </span>
-          <div className="flex items-center gap-3">
-            {!showTrash && !sel.active && visibleNotes.length > 0 && (
-              <button type="button" onClick={sel.start} className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1 active:scale-95 transition-transform"><ListChecks size={12} /> 선택</button>
-            )}
-            <button onClick={() => setShowTrash(v => !v)}
-              className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 inline-flex items-center gap-1">
-              {showTrash ? <ArrowLeft size={11} /> : <TrashIcon size={11} />} {showTrash ? '목록으로' : `휴지통${trashed.length > 0 ? ` (${trashed.length})` : ''}`}
-            </button>
+          {/* 도구 줄은 모든 탭이 같은 구조: 왼쪽 = 개수, 오른쪽 = [선택] [휴지통] (docs/DESIGN_RULES.md 4장) */}
+          <div className="flex items-center -my-2 -mr-2">
+            {!showTrash && !sel.active && visibleNotes.length > 0 && <TextAction icon={ListChecks} onClick={sel.start}>선택</TextAction>}
+            <TextAction icon={showTrash ? ArrowLeft : TrashIcon} onClick={() => setShowTrash(v => !v)}>{showTrash ? '목록으로' : `휴지통${trashed.length > 0 ? ` (${trashed.length})` : ''}`}</TextAction>
           </div>
         </div>
       )}
@@ -1902,9 +1919,9 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
                     삭제됨 · {fmtDateShort(dateKeyFromDate(note.deletedAt ? new Date(note.deletedAt) : new Date()))}
                     {readonly && <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">보관 레포</span>}
                   </span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => onRestore(note)} title="복원" aria-label="빠른 기록 복원" className="p-2 rounded text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 active:scale-90 transition-all"><Undo2 size={15} /></button>
-                    <button onClick={() => onPermanentDelete(note)} title="영구 삭제" aria-label="빠른 기록 영구 삭제" className="p-2 rounded text-slate-500 dark:text-slate-400 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
+                  <div className="flex items-center -my-2 -mr-2">
+                    <IconButton label="빠른 기록 복원" title="복원" onClick={() => onRestore(note)}><Undo2 size={16} /></IconButton>
+                    <IconButton label="빠른 기록 영구 삭제" title="영구 삭제" tone="danger" onClick={() => onPermanentDelete(note)}><Trash2 size={16} /></IconButton>
                   </div>
                 </div>
                 {note.text && <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 break-words"><HighlightText text={note.text} query="" /></p>}
@@ -2071,10 +2088,10 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulk
     return (
       <SelectableCard key={t.id} selectMode={sel.active} selected={sel.ids.has(t.id)} onToggle={() => sel.toggle(t.id)} label={`${t.text} 선택`} indicator="left">
       <div className={`flex items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors ${completingId === t.id ? 'wj-item-leaving' : ''}`}>
-        <button onClick={() => handleToggleAnimated(t)} disabled={completingId === t.id} title="완료 처리" aria-label={`"${t.text}" 완료 처리`}
-          className={`wj-card-actions shrink-0 -m-1.5 p-1.5 transition-all active:scale-90 ${completingId === t.id ? 'text-emerald-500 wj-check-bounce' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}>
+        <IconButton label={`"${t.text}" 완료 처리`} title="완료 처리" tone={completingId === t.id ? 'success' : 'default'} disabled={completingId === t.id}
+          className={`wj-card-actions -ml-2 disabled:opacity-100 ${completingId === t.id ? 'wj-check-bounce' : ''}`} onClick={() => handleToggleAnimated(t)}>
           {completingId === t.id ? <CircleCheckBig size={20} /> : <CircleIcon size={20} />}
-        </button>
+        </IconButton>
         <div className="flex-1 min-w-0">
           <span className="block text-[14px] text-slate-700 dark:text-slate-200 break-words">{t.text}</span>
           {t.createdAt && (
@@ -2084,17 +2101,11 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulk
           )}
         </div>
         {badge && <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${badge.cls}`}>{badge.txt}</span>}
-        {t.due && (
-          <button onClick={() => downloadICS(t.text, t.due)} title="캘린더에 추가" aria-label="캘린더에 추가" className="wj-card-actions p-1.5 text-slate-500 dark:text-slate-400 hover:text-[#5B9DF9] active:scale-90 transition-all shrink-0">
-            <CalendarPlus size={14} />
-          </button>
-        )}
-        <button onClick={() => startEdit(t)} title="수정" aria-label="할 일 수정" className="wj-card-actions p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all shrink-0">
-          <Pencil size={15} />
-        </button>
-        <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="wj-card-actions p-1.5 text-slate-500 dark:text-slate-400 hover:text-red-500 active:scale-90 transition-all shrink-0">
-          <X size={15} />
-        </button>
+        <div className="wj-card-actions flex items-center shrink-0 -my-1.5 -mr-1.5">
+          {t.due && <IconButton label="캘린더에 추가" tone="accent" onClick={() => downloadICS(t.text, t.due)}><CalendarPlus size={16} /></IconButton>}
+          <IconButton label="할 일 수정" title="수정" onClick={() => startEdit(t)}><Pencil size={16} /></IconButton>
+          <IconButton label="할 일 삭제" title="삭제" tone="danger" onClick={() => onDelete(t)}><Trash2 size={16} /></IconButton>
+        </div>
       </div>
       </SelectableCard>
     );
@@ -2138,8 +2149,8 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulk
       </div>
 
       {selectableTodos.length > 0 && !sel.active && (
-        <div className="flex justify-end px-0.5 -mb-1">
-          <button type="button" onClick={startSelect} className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1 active:scale-95 transition-transform"><ListChecks size={12} /> 선택</button>
+        <div className="flex justify-end px-0.5 -my-2 -mr-2">
+          <TextAction icon={ListChecks} onClick={startSelect}>선택</TextAction>
         </div>
       )}
 
@@ -2173,12 +2184,12 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulk
               {done.map(t => (
                 <SelectableCard key={t.id} selectMode={sel.active} selected={sel.ids.has(t.id)} onToggle={() => sel.toggle(t.id)} label={`${t.text} 선택`} indicator="left">
                 <div className="flex items-center gap-2.5 rounded-lg border border-slate-100 dark:border-slate-800/60 px-3 py-2 opacity-60">
-                  <button onClick={() => onToggle(t)} title="완료 취소" aria-label={`"${t.text}" 완료 취소`} className="wj-card-actions text-emerald-500 shrink-0 -m-1.5 p-1.5 active:scale-90 transition-transform"><CircleCheckBig size={18} /></button>
+                  <IconButton label={`"${t.text}" 완료 취소`} title="완료 취소" tone="success" className="wj-card-actions -ml-2" onClick={() => onToggle(t)}><CircleCheckBig size={20} /></IconButton>
                   <div className="flex-1 min-w-0">
                     <span className="block text-[13px] text-slate-500 dark:text-slate-400 line-through break-words">{t.text}</span>
                     {t.completedAt && <span className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">완료 {fmtDateShort(dateKeyFromDate(new Date(t.completedAt)))} {fmtTime(t.completedAt)}</span>}
                   </div>
-                  <button onClick={() => onDelete(t)} title="삭제" aria-label="할 일 삭제" className="wj-card-actions p-2 text-slate-500 dark:text-slate-400 hover:text-red-500 active:scale-90 transition-all shrink-0"><X size={15} /></button>
+                  <IconButton label="할 일 삭제" title="삭제" tone="danger" className="wj-card-actions -my-2 -mr-2" onClick={() => onDelete(t)}><Trash2 size={16} /></IconButton>
                 </div>
                 </SelectableCard>
               ))}
@@ -2311,8 +2322,10 @@ function MemoSection({ memos, onAdd, onEdit, onDelete }) {
                     </span>
                   )}
                 </div>
-                <button onClick={() => startEdit(m)} title="수정" aria-label="메모 수정" className="shrink-0 p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><Pencil size={15} /></button>
-                <button onClick={() => onDelete(m)} title="삭제" aria-label="메모 삭제" className="shrink-0 p-1.5 text-slate-500 dark:text-slate-400 hover:text-red-500 active:scale-90 transition-all"><X size={15} /></button>
+                <div className="flex items-center shrink-0 -my-1.5 -mr-1.5">
+                  <IconButton label="메모 수정" title="수정" onClick={() => startEdit(m)}><Pencil size={16} /></IconButton>
+                  <IconButton label="메모 삭제" title="삭제" tone="danger" onClick={() => onDelete(m)}><Trash2 size={16} /></IconButton>
+                </div>
               </div>
               {m.tags && m.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
@@ -2517,8 +2530,8 @@ function EmphButton({ info, onApply, compact }) {
       onMouseDown={e => e.preventDefault()} // 눌러도 입력칸의 글자 선택이 풀리지 않게
       title={info.can ? (info.active ? '선택한 글자의 강조 해제 (Ctrl+B)' : '선택한 글자를 굵게+밑줄로 강조 (Ctrl+B)') : '글자를 먼저 드래그해서 선택하세요'}
       aria-label={info.active ? '선택한 글자 강조 해제' : '선택한 글자 강조'}
-      className={`shrink-0 inline-flex items-center gap-1 rounded-md border text-[11px] font-medium transition-all ${compact ? 'px-1.5 py-1' : 'px-2 py-0.5'} ${tone}`}>
-      <span className="font-bold underline decoration-2 underline-offset-2 leading-none">B</span>{!compact && label}
+      className={`shrink-0 inline-flex items-center justify-center gap-1 min-h-8 rounded-md border text-[11px] font-medium transition-all px-2.5 ${tone}`}>
+      <span className="font-bold underline decoration-2 underline-offset-2 leading-none">B</span>{label}
     </button>
   );
 }
@@ -2537,7 +2550,7 @@ function EmphTextarea({ label, value, onValueChange, className, rows, placeholde
   const emph = useEmph(() => ({ value, set: onValueChange }));
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[22px]">
+      <div className="flex items-center justify-between gap-2 mb-1 min-h-8">
         <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">{label}</label>
         <EmphButton info={emph.info} onApply={emph.apply} />
       </div>
@@ -2759,13 +2772,13 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
             </div>
             <h3 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words"><HighlightText text={entry.title || '(제목 없음)'} query={query} /></h3>
           </div>
-          <div className="wj-card-actions flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
-            <button onClick={handleFavClick} title={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'} aria-label={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'}
-              className={`p-2 rounded-md active:scale-90 transition-all ${entry.favorite ? 'text-[#E8A93B]' : 'text-slate-500 dark:text-slate-400 hover:text-[#E8A93B]'} hover:bg-slate-100 dark:hover:bg-slate-800 ${favBounce ? 'wj-check-bounce' : ''}`}>
+          {/* 항상 보임(마우스 올릴 때만 보이기 금지 — 터치 화면에서 안 보이는 문제) */}
+          <div className="wj-card-actions flex items-center shrink-0 -my-2 -mr-2">
+            <IconButton label={entry.favorite ? '즐겨찾기 해제' : '즐겨찾기'} tone={entry.favorite ? 'star-on' : 'default'} className={favBounce ? 'wj-check-bounce' : ''} onClick={handleFavClick}>
               <Star size={16} fill={entry.favorite ? '#E8A93B' : 'none'} />
-            </button>
-            <button onClick={() => onEdit(entry)} title="수정" aria-label="일지 수정" className="p-2 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"><Pencil size={16} /></button>
-            <button onClick={() => onDelete(entry)} title="삭제" aria-label="일지 삭제" className="p-2 rounded-md text-slate-500 dark:text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90 transition-all"><Trash2 size={16} /></button>
+            </IconButton>
+            <IconButton label="일지 수정" title="수정" onClick={() => onEdit(entry)}><Pencil size={16} /></IconButton>
+            <IconButton label="일지 삭제" title="삭제" tone="danger" onClick={() => onDelete(entry)}><Trash2 size={16} /></IconButton>
           </div>
         </div>
 
@@ -3028,7 +3041,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">
             {initial ? '일지 수정' : prefillNote ? '빠른 기록에서 일지 작성' : '새 일지 작성'}
           </h2>
-          <button type="button" onClick={attemptClose} title="닫기" aria-label="닫기" className="p-2 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-transform"><X size={16} /></button>
+          <IconButton label="닫기" onClick={attemptClose}><X size={16} /></IconButton>
         </div>
 
         {draftRestored && (
@@ -3076,7 +3089,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           </div>
 
           <div>
-            <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[22px]">
+            <div className="flex items-center justify-between gap-2 mb-1 min-h-8">
               <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400"><ListChecks size={12} /> 주요 성과 및 한 일</label>
               <EmphButton info={bulletEmph.info} onApply={bulletEmph.apply} />
             </div>
@@ -3094,7 +3107,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
                 </div>
               ))}
             </div>
-            <button type="button" onClick={addBullet} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:underline active:scale-95 transition-transform"><Plus size={12} /> 항목 추가</button>
+            <TextAction icon={Plus} onClick={addBullet} className="mt-0.5 -ml-2">항목 추가</TextAction>
           </div>
 
           <EmphTextarea label={<>개요 <span className="text-slate-500 dark:text-slate-400 font-normal">(어디서 왔는지, 어떤 배경·맥락인지)</span></>} rows={2} value={form.overview} onValueChange={v => setForm(f => ({ ...f, overview: v }))} placeholder="예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등"
@@ -3132,7 +3145,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
                 </div>
               ))}
             </div>
-            <button type="button" onClick={addLink} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:underline active:scale-95 transition-transform"><Plus size={12} /> 링크 추가</button>
+            <TextAction icon={Plus} onClick={addLink} className="mt-0.5 -ml-2">링크 추가</TextAction>
           </div>
 
           <div>
@@ -3526,10 +3539,11 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
           <span className="text-[12px] text-slate-500 dark:text-slate-400 font-mono">
             {showTrash ? `휴지통 ${trashedEntries.length}건` : `${activeEntries.length}건`}
           </span>
-          <button onClick={() => setShowTrash(v => !v)}
-            className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 inline-flex items-center gap-1">
-            {showTrash ? <ArrowLeft size={11} /> : <TrashIcon size={11} />} {showTrash ? '목록으로' : `휴지통${trashedEntries.length > 0 ? ` (${trashedEntries.length})` : ''}`}
-          </button>
+          {/* 모든 탭과 같은 도구 줄: 오른쪽 = [선택] [휴지통]. [선택]은 목록 보기에서만 */}
+          <div className="flex items-center -my-2 -mr-2">
+            {view === 'list' && !showTrash && !sel.active && filtered.length > 0 && <TextAction icon={ListChecks} onClick={sel.start}>선택</TextAction>}
+            <TextAction icon={showTrash ? ArrowLeft : TrashIcon} onClick={() => setShowTrash(v => !v)}>{showTrash ? '목록으로' : `휴지통${trashedEntries.length > 0 ? ` (${trashedEntries.length})` : ''}`}</TextAction>
+          </div>
         </div>
       )}
 
@@ -3545,9 +3559,9 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                     삭제됨 · {fmtDateShort(dateKeyFromDate(entry.deletedAt ? new Date(entry.deletedAt) : new Date()))}
                     {entry._readonly && <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">보관 레포</span>}
                   </span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => onRestore(entry)} title="복원" aria-label="일지 복원" className="p-2 rounded text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 active:scale-90 transition-all"><Undo2 size={15} /></button>
-                    <button onClick={() => onPermanentDelete(entry)} title="영구 삭제" aria-label="일지 영구 삭제" className="p-2 rounded text-slate-500 dark:text-slate-400 hover:text-red-500 active:scale-90 transition-all"><Trash2 size={15} /></button>
+                  <div className="flex items-center -my-2 -mr-2">
+                    <IconButton label="일지 복원" title="복원" onClick={() => onRestore(entry)}><Undo2 size={16} /></IconButton>
+                    <IconButton label="일지 영구 삭제" title="영구 삭제" tone="danger" onClick={() => onPermanentDelete(entry)}><Trash2 size={16} /></IconButton>
                   </div>
                 </div>
                 <div className="text-[13px] font-medium text-slate-700 dark:text-slate-200 mt-1 break-words">{entry.title || '(제목 없음)'}</div>
@@ -3737,12 +3751,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       {activeEntries.length > 0 && (
         <div className="flex items-center justify-between px-0.5 -mt-1">
           <span className="text-[12px] text-slate-500 dark:text-slate-400 font-mono">{filtered.length}건 표시 중 {hasFilters && `(전체 ${activeEntries.length}건)`}</span>
-          <div className="flex items-center gap-3">
-            {hasFilters && <button onClick={resetFilters} className="text-[12px] text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 active:scale-95 transition-transform"><X size={11} /> 필터 초기화</button>}
-            {filtered.length > 0 && !sel.active && (
-              <button type="button" onClick={sel.start} className="text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1 active:scale-95 transition-transform"><ListChecks size={12} /> 선택</button>
-            )}
-          </div>
+          {hasFilters && <div className="-my-2 -mr-2"><TextAction icon={X} onClick={resetFilters}>필터 초기화</TextAction></div>}
         </div>
       )}
 
@@ -5148,15 +5157,10 @@ function App() {
           <header className="flex items-center justify-between mb-4">
             <Logo />
             <div className="flex items-center gap-1.5">
-              <button onClick={loadAll} disabled={loading} title="새로고침" aria-label="새로고침"
-                className="p-2.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all disabled:opacity-50">
-                <RefreshCw size={17} className={loading ? 'wj-spin' : ''} />
-              </button>
-              <button onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}
-                title={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'} aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
-                className="p-2.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all">
-                {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-              </button>
+              <IconButton label="새로고침" onClick={loadAll} disabled={loading}><RefreshCw size={16} className={loading ? 'wj-spin' : ''} /></IconButton>
+              <IconButton label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'} onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}>
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              </IconButton>
             </div>
           </header>
 
