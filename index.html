@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.33 · 2026-10-01';
+const APP_VERSION = 'ver.34 · 2026-10-02';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -2869,6 +2869,8 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
   const [keepImages, setKeepImages] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
   const [draftRestored, setDraftRestored] = useState(false);
+  // 문제/해결/배운 점은 "있을 때만" 쓰는 칸이라 처음엔 접어 둠(단발성 일까지 다 채우라는 압박을 줄이려고). 이미 내용이 있으면 열린 채로 시작
+  const [showDetails, setShowDetails] = useState(false);
   const firstFieldRef = useRef(null);
   const photoInputRef = useRef(null);
   const draftKeyRef = useRef(null); // 지금 열려있는 폼에 대응하는 임시저장 키 (수정 중인 일지 id, 또는 'new'/'note:노트id')
@@ -2924,10 +2926,12 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
       setForm(draft.form);
       setKeepImages(draft.keepImages || baseImages);
       setDraftRestored(true);
+      setShowDetails(!!(draft.form.problem || draft.form.solution || draft.form.lesson));
     } else {
       if (draft) { try { localStorage.removeItem(draftKeyRef.current); } catch (e) {} }
       setForm(baseForm);
       setKeepImages(baseImages);
+      setShowDetails(!!(baseForm.problem || baseForm.solution || baseForm.lesson));
     }
   }, [open, initial, prefillNote]);
 
@@ -3075,6 +3079,13 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           <EmphTextarea label={<>개요 <span className="text-slate-400 font-normal">(어디서 왔는지, 어떤 배경·맥락인지)</span></>} rows={2} value={form.overview} onValueChange={v => setForm(f => ({ ...f, overview: v }))} placeholder="예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등"
             className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
 
+          {!showDetails ? (
+            <button type="button" onClick={() => setShowDetails(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 active:scale-[0.99] transition-all">
+              <Plus size={12} /> 문제·해결·배운 점 추가 <span className="font-normal text-slate-400 dark:text-slate-500">(있을 때만)</span>
+            </button>
+          ) : (
+            <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <EmphTextarea label="발생 문제" rows={3} value={form.problem} onValueChange={v => setForm(f => ({ ...f, problem: v }))} placeholder="어떤 문제가 있었나요?"
               className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
@@ -3084,6 +3095,8 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
 
           <EmphTextarea label={<><Lightbulb size={12} /> 배운 점</>} rows={2} value={form.lesson} onValueChange={v => setForm(f => ({ ...f, lesson: v }))} placeholder="이 경험에서 얻은 인사이트를 적어보세요"
             className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
+            </>
+          )}
 
           <div>
             <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5"><Link2 size={12} /> 참고 링크</label>

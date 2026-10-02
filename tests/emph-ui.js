@@ -163,6 +163,7 @@ async function openEditE1(page) {
 
   await test('문제/해결/배운 점 칸에도 각각 [강조] 버튼이 있고 서로 독립', async ({ page, fake }) => {
     await openEditE1(page);
+    await form(page).getByRole('button', { name: /문제·해결·배운 점 추가/ }).click(); // 접혀 있으므로 펼침
     const tas = form(page).locator('textarea');
     assert.ok(await tas.count() >= 4, '개요/문제/해결/배운점 4칸');
     await tas.nth(1).fill('문제 내용입니다'); // 발생 문제
@@ -187,6 +188,7 @@ async function openEditE1(page) {
     await page.waitForTimeout(300);
     await editBtn(page).first().click();
     await page.waitForTimeout(400);
+    await form(page).getByRole('button', { name: /문제·해결·배운 점 추가/ }).click();
     const all = form(page).getByRole('button', { name: /선택한 글자 강조/ });
     assert.ok(await all.count() >= 5, '버튼이 핵심내용+4칸이어야 함: ' + await all.count());
     for (let i = 0; i < await all.count(); i++) assert.ok(await all.nth(i).isDisabled(), i + '번째 버튼이 활성 상태');
