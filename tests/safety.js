@@ -174,7 +174,7 @@ const openMemos = async page => { await gotoTodos(page); await page.getByRole('b
 
   await test('메모 삭제 → 화면에서 즉시 사라지고, 4.5초 전엔 서버가 그대로, [실행취소]하면 서버 변화 없음', async ({ page, fake }) => {
     await openMemos(page);
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(300);
     assert.strictEqual(await page.locator('text=둘째 기억').count() + await page.locator('text=첫째 기억').count(), 1);
     assert.strictEqual(fake.get('data/memos.json').length, 2, '4.5초 전엔 서버에서 지우면 안 됨');
@@ -188,7 +188,7 @@ const openMemos = async page => { await gotoTodos(page); await page.getByRole('b
 
   await test('메모 삭제 후 실행취소 안 하면 4.5초 뒤 서버에서 삭제됨(1건만)', async ({ page, fake }) => {
     await openMemos(page);
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(5600);
     const saved = fake.get('data/memos.json');
     assert.strictEqual(saved.length, 1);
@@ -197,21 +197,21 @@ const openMemos = async page => { await gotoTodos(page); await page.getByRole('b
 
   await test('메모 두 개를 연달아 삭제: 각각 독립 처리, 하나만 실행취소하면 그것만 남음', async ({ page, fake }) => {
     await openMemos(page);
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(250);
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(250);
-    assert.strictEqual(await page.locator('[aria-label="메모 삭제"]').count(), 0);
+    assert.strictEqual(await page.locator('[aria-label="기억할 것 삭제"]').count(), 0);
     await undoBtn(page).click(); // 마지막(둘째로 지운) 것만 되돌림
     await page.waitForTimeout(5600);
     const saved = fake.get('data/memos.json');
     assert.strictEqual(saved.length, 1, JSON.stringify(saved));
-    assert.strictEqual(await page.locator('[aria-label="메모 삭제"]').count(), 1);
+    assert.strictEqual(await page.locator('[aria-label="기억할 것 삭제"]').count(), 1);
   }, { seed: memoSeed });
 
   await test('메모 삭제 대기 중 새로고침하면 지워지지 않은 채로 다시 보임(데이터 안전 방향)', async ({ page, fake }) => {
     await openMemos(page);
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(300);
     await page.reload();
     await page.waitForSelector('text=업무일지');
@@ -224,11 +224,11 @@ const openMemos = async page => { await gotoTodos(page); await page.getByRole('b
   await test('메모 삭제 저장 실패(500): 목록에 다시 나타나고 [다시 시도]로 삭제', async ({ page, fake }) => {
     await openMemos(page);
     fake.failNext.push({ path: 'data/memos.json', status: 500 });
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(5800);
     assert.ok(await page.locator('text=삭제 실패').count() >= 1);
     assert.strictEqual(fake.get('data/memos.json').length, 2);
-    assert.strictEqual(await page.locator('[aria-label="메모 삭제"]').count(), 2, '실패하면 목록에 복귀해야 함');
+    assert.strictEqual(await page.locator('[aria-label="기억할 것 삭제"]').count(), 2, '실패하면 목록에 복귀해야 함');
     await page.getByRole('button', { name: '다시 시도' }).click();
     await page.waitForTimeout(5800);
     assert.strictEqual(fake.get('data/memos.json').length, 1);
@@ -237,7 +237,7 @@ const openMemos = async page => { await gotoTodos(page); await page.getByRole('b
   await test('메모 삭제 대기 중에도 "기억할 것 · N" 개수가 바로 줄어듦', async ({ page }) => {
     await openMemos(page);
     assert.ok(await page.getByRole('button', { name: /기억할 것 · 2/ }).count() === 1);
-    await page.locator('[aria-label="메모 삭제"]').first().click();
+    await page.locator('[aria-label="기억할 것 삭제"]').first().click();
     await page.waitForTimeout(300);
     assert.ok(await page.getByRole('button', { name: /기억할 것 · 1/ }).count() === 1);
   }, { seed: memoSeed });

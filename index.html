@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.38 · 2026-10-02';
+const APP_VERSION = 'ver.39 · 2026.10.02';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -626,9 +626,9 @@ async function ghGetImageBlobUrl(cfg, path) {
 
 async function ghTestConnection(cfg) {
   const res = await ghFetch(cfg, '', { query: '' });
-  if (res.status === 401) throw new Error('토큰이 올바르지 않거나 만료되었습니다.');
-  if (res.status === 404) throw new Error('레포지토리를 찾을 수 없습니다. 계정명·레포 이름을 확인해주세요. (레포가 완전히 비어있으면 404가 뜰 수 있어요 — README와 함께 생성했는지 확인)');
-  if (res.status === 403) throw new Error('접근이 거부되었습니다. 토큰 권한(Contents: Read and write)을 확인해주세요.');
+  if (res.status === 401) throw new Error('토큰이 올바르지 않거나 만료되었어요.');
+  if (res.status === 404) throw new Error('레포지토리를 찾을 수 없어요. 계정명·레포 이름을 확인해주세요. (레포가 완전히 비어있으면 404가 뜰 수 있어요 — README와 함께 생성했는지 확인)');
+  if (res.status === 403) throw new Error('접근이 거부되었어요. 토큰 권한(Contents: Read and write)을 확인해주세요.');
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message || `연결 실패 (${res.status})`);
@@ -645,7 +645,7 @@ async function ghTestConnection(cfg) {
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
+    reader.onerror = () => reject(new Error('파일을 읽지 못했어요.'));
     reader.onload = e => resolve(e.target.result.split(',')[1]);
     reader.readAsDataURL(file);
   });
@@ -791,7 +791,7 @@ function GlobalLightbox() {
     setLoading(true);
     ghGetImageBlobUrl(state.cfg, state.path)
       .then(u => { if (!cancelled) { setUrl(u); setLoading(false); } })
-      .catch(() => { if (!cancelled) { setError('원본을 불러오지 못했습니다.'); setLoading(false); } });
+      .catch(() => { if (!cancelled) { setError('원본을 불러오지 못했어요.'); setLoading(false); } });
     return () => { cancelled = true; };
   }, [state]);
 
@@ -989,7 +989,7 @@ function SettingsPanel({ initial, onSave, onDisconnect, embedded, tokenExpiresAt
             <h1 className="text-lg font-semibold text-slate-100">연결하기</h1>
             <p className="text-[13px] text-slate-400 mt-1.5 leading-relaxed">
               데이터를 저장할 <b className="text-slate-300">GitHub 비공개 저장소</b> 정보를 입력하세요.<br />
-              입력한 정보는 이 기기의 브라우저에만 저장되고, 앱 코드에는 포함되지 않습니다.
+              입력한 정보는 이 기기의 브라우저에만 저장되고, 앱 코드에는 포함되지 않아요.
             </p>
           </div>
         )}
@@ -1382,7 +1382,7 @@ function PhraseManager({ phrases, onAdd, onDelete }) {
         </button>
       </div>
       {phrases.length === 0 ? (
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">등록된 문구가 없습니다. 빠른 기록 입력창 위에 칩으로 표시돼요.</p>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">등록된 문구가 없어요. 빠른 기록 입력창 위에 칩으로 표시돼요.</p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {phrases.map(p => (
@@ -1907,7 +1907,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
 
       {showTrash ? (
         trashed.length === 0 ? (
-          <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">휴지통이 비어 있습니다.</div>
+          <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">휴지통이 비어 있어요.</div>
         ) : (
           <div className="space-y-2.5">
             {trashed.map(note => {
@@ -1916,7 +1916,7 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
               <div key={note.id} className="wj-enter rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3.5 opacity-80">
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                    삭제됨 · {fmtDateShort(dateKeyFromDate(note.deletedAt ? new Date(note.deletedAt) : new Date()))}
+                    삭제됨 · {fmtDateShort(dateKeyFromDate(note.deletedAt ? new Date(note.deletedAt) : new Date()))} {fmtTime(note.deletedAt)}
                     {readonly && <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">보관 레포</span>}
                   </span>
                   <div className="flex items-center -my-2 -mr-2">
@@ -1932,12 +1932,12 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
         )
       ) : active.length === 0 ? (
         <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">
-          아직 빠른 기록이 없습니다. 위에서 바로 적어보세요.
+          아직 빠른 기록이 없어요. 위에서 바로 적어보세요.
         </div>
       ) : (
         <React.Fragment>
           {unprocessed.length === 0 ? (
-            <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">미처리 빠른 기록이 없습니다.</div>
+            <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">정리할 빠른 기록이 없어요.</div>
           ) : (
             <div className="space-y-2.5">
               {unprocessed.map(note => (
@@ -2155,7 +2155,7 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulk
       )}
 
       {pending.length === 0 ? (
-        <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">할 일이 모두 처리됐습니다.</div>
+        <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">할 일이 모두 처리됐어요.</div>
       ) : (
         <div className="space-y-4">
           {BUCKETS.map(b => grouped[b.key].length > 0 && (
@@ -2295,7 +2295,7 @@ function MemoSection({ memos, onAdd, onEdit, onDelete }) {
 
       {filtered.length === 0 ? (
         <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">
-          {memos.length === 0 ? '아직 기억해둘 메모가 없습니다.' : '검색 결과가 없습니다.'}
+          {memos.length === 0 ? '아직 기억할 것이 없어요.' : '검색 결과가 없어요.'}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -2307,8 +2307,8 @@ function MemoSection({ memos, onAdd, onEdit, onDelete }) {
                 <input value={editTagInput} onChange={e => setEditTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveEdit(m)}
                   placeholder="태그 (쉼표로 구분)"
                   className="flex-1 min-w-0 px-2 py-1 rounded-md text-[12px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300" />
-                <button onClick={() => saveEdit(m)} title="저장" aria-label="메모 수정 저장" className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 transition-all"><CircleCheckBig size={14} /></button>
-                <button onClick={cancelEdit} title="취소" aria-label="메모 수정 취소" className="shrink-0 p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><X size={14} /></button>
+                <button onClick={() => saveEdit(m)} title="저장" aria-label="기억할 것 수정 저장" className="shrink-0 p-1.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-90 transition-all"><CircleCheckBig size={14} /></button>
+                <button onClick={cancelEdit} title="취소" aria-label="기억할 것 수정 취소" className="shrink-0 p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><X size={14} /></button>
               </div>
             </div>
           ) : (
@@ -2323,8 +2323,8 @@ function MemoSection({ memos, onAdd, onEdit, onDelete }) {
                   )}
                 </div>
                 <div className="flex items-center shrink-0 -my-1.5 -mr-1.5">
-                  <IconButton label="메모 수정" title="수정" onClick={() => startEdit(m)}><Pencil size={16} /></IconButton>
-                  <IconButton label="메모 삭제" title="삭제" tone="danger" onClick={() => onDelete(m)}><Trash2 size={16} /></IconButton>
+                  <IconButton label="기억할 것 수정" title="수정" onClick={() => startEdit(m)}><Pencil size={16} /></IconButton>
+                  <IconButton label="기억할 것 삭제" title="삭제" tone="danger" onClick={() => onDelete(m)}><Trash2 size={16} /></IconButton>
                 </div>
               </div>
               {m.tags && m.tags.length > 0 && (
@@ -2356,7 +2356,7 @@ function StatsStrip({ entries, hasFilters, monthFilter, importanceFilter, onSele
     };
   }, [entries]);
   const items = [
-    { key: 'all', label: '전체 기록', value: stats.total, active: !hasFilters, onClick: onSelectAll },
+    { key: 'all', label: '전체 일지', value: stats.total, active: !hasFilters, onClick: onSelectAll },
     { key: 'month', label: '이번 달', value: stats.month, active: monthFilter, onClick: onSelectMonth },
     { key: '상', label: '중요도 상', value: stats.high, active: importanceFilter === '상', onClick: () => onSelectImportance('상') },
     { key: '중', label: '중요도 중', value: stats.mid, active: importanceFilter === '중', onClick: () => onSelectImportance('중') },
@@ -3549,14 +3549,14 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
 
       {showTrash ? (
         trashedEntries.length === 0 ? (
-          <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">휴지통이 비어 있습니다.</div>
+          <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">휴지통이 비어 있어요.</div>
         ) : (
           <div className="space-y-2.5">
             {trashedEntries.map(entry => (
               <div key={entry.id} className="wj-enter rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3.5 opacity-80">
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                    삭제됨 · {fmtDateShort(dateKeyFromDate(entry.deletedAt ? new Date(entry.deletedAt) : new Date()))}
+                    삭제됨 · {fmtDateShort(dateKeyFromDate(entry.deletedAt ? new Date(entry.deletedAt) : new Date()))} {fmtTime(entry.deletedAt)}
                     {entry._readonly && <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">보관 레포</span>}
                   </span>
                   <div className="flex items-center -my-2 -mr-2">
@@ -3656,7 +3656,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       ) : view === 'project' ? (
         <React.Fragment>
           {projectsByYear.length === 0 ? (
-            <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">아직 프로젝트가 없습니다.</div>
+            <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">아직 프로젝트가 없어요.</div>
           ) : (
             <React.Fragment>
               <div className="space-y-2.5">
@@ -3687,7 +3687,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
 
               {timelineEntries.length > 0 && (
                 <div className="flex items-center gap-3 px-0.5 text-[12px] text-slate-500 dark:text-slate-400 font-mono">
-                  <span>{timelineEntries[0].date} → {timelineEntries[timelineEntries.length - 1].date}</span>
+                  <span>{fmtDateShort(timelineEntries[0].date)} → {fmtDateShort(timelineEntries[timelineEntries.length - 1].date)}</span>
                   <span>· {timelineEntries.length}건</span>
                 </div>
               )}
@@ -3758,7 +3758,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       {filtered.length === 0 ? (
         <div className="wj-enter flex flex-col items-center justify-center text-center py-16 px-6">
           <Inbox size={22} className="text-slate-500 dark:text-slate-400 mb-3" />
-          <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">{hasFilters ? '조건에 맞는 일지가 없습니다' : '아직 작성된 업무일지가 없습니다'}</p>
+          <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">{hasFilters ? '조건에 맞는 일지가 없어요' : '아직 작성된 업무일지가 없어요'}</p>
           {hasFilters && hasArchives && !archivesLoaded && (
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">보관된 저장소는 아직 안 불러왔어요 — 거기 있는 기록일 수도 있어요.</p>
           )}
@@ -4012,7 +4012,7 @@ function App() {
           usedCache = true;
         }
       } catch (_) { /* 캐시 파싱 실패 시 그냥 원래 에러를 보여줌 */ }
-      setSyncError(usedCache ? '' : (err.message || '동기화에 실패했습니다.'));
+      setSyncError(usedCache ? '' : (err.message || '동기화에 실패했어요.'));
       if (!usedCache) setOffline(false);
     } finally {
       setLoading(false);
@@ -4093,7 +4093,7 @@ function App() {
       setArchiveNotes(notes);
       setArchivesLoaded(true);
     } catch (err) {
-      showToast('보관 레포를 불러오지 못했습니다: ' + err.message);
+      showToast('보관 레포를 불러오지 못했어요: ' + err.message);
     } finally {
       setArchiveLoading(false);
     }
@@ -4165,7 +4165,7 @@ function App() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      showToast('백업 파일을 내보냈습니다.');
+      showToast('백업 파일을 내보냈어요.');
     } catch (err) {
       showToast('내보내기 실패: ' + err.message, () => handleExportData());
     } finally {
@@ -4229,7 +4229,7 @@ function App() {
       addSheet(todoRows, '할일', [6, 30, 11]);
 
       XLSX.writeFile(wb, `worklog-${todayStr()}.xlsx`);
-      showToast('엑셀 파일을 내보냈습니다.');
+      showToast('엑셀 파일을 내보냈어요.');
     } catch (err) {
       showToast('내보내기 실패: ' + err.message, () => handleExportExcel());
     } finally {
@@ -4339,7 +4339,7 @@ function App() {
         const merged = await writeTodos(current => [...newTodos, ...current], '엑셀에서 할 일 가져오기');
         setTodos(merged);
       }
-      showToast(`가져왔습니다 (일지 ${newEntries.length}건 · 빠른 기록 ${newNotes.length}건 · 할 일 ${newTodos.length}건).`);
+      showToast(`가져왔어요 (일지 ${newEntries.length}건 · 빠른 기록 ${newNotes.length}건 · 할 일 ${newTodos.length}건).`);
     } catch (err) {
       showToast('가져오기 실패: ' + err.message);
     } finally {
@@ -4431,7 +4431,7 @@ function App() {
         const merged = await writeTodos(current => [...newTodos, ...current], 'JSON 백업에서 할 일 가져오기');
         setTodos(merged);
       }
-      showToast(`가져왔습니다 (일지 ${newEntries.length}건 · 빠른 기록 ${newNotes.length}건 · 할 일 ${newTodos.length}건).`);
+      showToast(`가져왔어요 (일지 ${newEntries.length}건 · 빠른 기록 ${newNotes.length}건 · 할 일 ${newTodos.length}건).`);
     } catch (err) {
       showToast('가져오기 실패: ' + err.message);
     } finally {
@@ -4458,7 +4458,7 @@ function App() {
     showToast('새 레포로 전환했어요. 이전 레포는 보관되어 계속 조회할 수 있어요.');
   };
   const handleDisconnect = () => {
-    if (!window.confirm('이 기기에서 연결 설정을 삭제할까요? GitHub의 데이터는 그대로 남습니다.')) return;
+    if (!window.confirm('이 기기에서 연결 설정을 삭제할까요? GitHub의 데이터는 그대로 남아요.')) return;
     localStorage.removeItem(CONFIG_KEY);
     setCfg(null);
     setEntries([]); setQuickNotes([]); setTodos([]);
@@ -4584,7 +4584,7 @@ function App() {
       markPending(cfg, 'notes', newNote); // GitHub 읽기 반영 지연 대비 — 새로고침해도 잠깐 안 사라지게
       setQuickNotes(merged);
       vibrate(20);
-      showToast('기록했습니다.');
+      showToast('기록했어요.');
     } catch (err) {
       showToast('저장 실패: ' + err.message, () => handleAddNote(text, files));
     } finally {
@@ -4627,7 +4627,7 @@ function App() {
       }, `빠른 기록 ${targets.length}건 휴지통으로 이동`);
       setQuickNotes(merged);
       if (!touched) { showToast('처리할 기록을 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
-      showToast(`빠른 기록 ${touched}건을 휴지통으로 이동했습니다.`);
+      showToast(`빠른 기록 ${touched}건을 휴지통으로 이동했어요.`);
       return true;
     } catch (err) {
       showToast('삭제 실패: ' + err.message, () => handleBulkDeleteNotes(ids));
@@ -4651,7 +4651,7 @@ function App() {
       const inUse = collectImagePaths(displayEntries, displayNotes, { excludeNoteId: note.id });
       await deleteOrphanedImages(writeCfg, note.imageRefs, inUse, '빠른 기록 영구 삭제');
       await removeNote(note, '빠른 기록 영구 삭제');
-      showToast('영구 삭제했습니다.');
+      showToast('영구 삭제했어요.');
     } catch (err) {
       showToast('삭제 실패: ' + err.message, () => handlePermanentDeleteNote(note));
     }
@@ -4671,7 +4671,7 @@ function App() {
       }
       await mutateNote(note, n => ({ ...n, text: newText, imageRefs: [...keepImages, ...uploadedRefs], updatedAt: Date.now() }), '빠른 기록 수정');
       vibrate(20);
-      showToast(note._readonly ? '보관 레포에 저장했습니다.' : '수정했습니다.');
+      showToast(note._readonly ? '보관 레포에 저장했어요.' : '수정했어요.');
     } catch (err) {
       showToast('수정 실패: ' + err.message, () => handleEditNoteSave(note, newText, keepImages, newFiles));
     } finally {
@@ -4774,7 +4774,7 @@ function App() {
       const now = Date.now();
       const n = await bulkMutateEntries(ids, e => ({ ...e, deleted: true, deletedAt: now }), `일지 ${ids.length}건 휴지통으로 이동`);
       if (!n) { showToast('처리할 일지를 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
-      showToast(`일지 ${n}건을 휴지통으로 이동했습니다.`);
+      showToast(`일지 ${n}건을 휴지통으로 이동했어요.`);
       return true;
     } catch (err) {
       showToast('삭제 실패: ' + err.message, () => handleBulkDeleteEntries(ids));
@@ -4787,7 +4787,7 @@ function App() {
       const now = Date.now();
       const n = await bulkMutateEntries(ids, e => (!!e.favorite === value ? e : { ...e, favorite: value, updatedAt: now }), `일지 ${ids.length}건 즐겨찾기 ${value ? '추가' : '해제'}`);
       if (!n) { showToast('처리할 일지를 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
-      showToast(`일지 ${n}건을 즐겨찾기${value ? '에 추가' : '에서 해제'}했습니다.`);
+      showToast(`일지 ${n}건을 즐겨찾기${value ? '에 추가' : '에서 해제'}했어요.`);
       return true;
     } catch (err) {
       showToast('저장 실패: ' + err.message, () => handleBulkFavoriteEntries(ids, value));
@@ -4807,7 +4807,7 @@ function App() {
       const now = Date.now();
       const n = await bulkMutateEntries(ids, e => (e[field] === value ? e : { ...e, [field]: value, updatedAt: now }), `일지 ${ids.length}건 ${BULK_FIELD_LABEL[field]} 변경`);
       if (!n) { showToast('처리할 일지를 찾지 못했어요. 새로고침 후 다시 시도해주세요.'); return false; }
-      showToast(`일지 ${n}건의 ${BULK_FIELD_LABEL[field]}를 "${value}"(으)로 바꿨습니다.`);
+      showToast(`일지 ${n}건의 ${BULK_FIELD_LABEL[field]}를 "${value}"(으)로 바꿨어요.`);
       return true;
     } catch (err) {
       showToast('저장 실패: ' + err.message, () => handleBulkFieldEntries(ids, field, value));
@@ -4911,7 +4911,7 @@ function App() {
       }, `할 일 ${ids.length}건 ${done ? '완료 처리' : '완료 취소'}`);
       setTodos(merged);
       if (!touched) { showToast(done ? '이미 모두 완료된 항목이에요.' : '이미 모두 미완료 상태예요.'); return false; }
-      showToast(`할 일 ${touched}건을 ${done ? '완료 처리' : '완료 취소'}했습니다.`);
+      showToast(`할 일 ${touched}건을 ${done ? '완료 처리' : '완료 취소'}했어요.`);
       return true;
     } catch (err) {
       showToast('저장 실패: ' + err.message, () => handleBulkCompleteTodos(ids, done));
@@ -5051,7 +5051,7 @@ function App() {
         }
         await mutateEntry(editingEntry, e => ({ ...e, ...fields, images: [...keepImages, ...uploadedRefs], updatedAt: Date.now() }), '일지 수정');
         closeModal();
-        showToast(editingEntry._readonly ? '보관 레포에 저장했습니다.' : '저장했습니다.');
+        showToast(editingEntry._readonly ? '보관 레포에 저장했어요.' : '저장했어요.');
         return true;
       }
       // 새 일지 작성 — 빠른 기록에서 정리하는 거라면 그 기록이 속한 레포에 그대로 작성 (기존 사진이 그 레포에 있으므로), 아니면 활성 레포에 작성
@@ -5083,7 +5083,7 @@ function App() {
       }
       closeModal();
       vibrate(20);
-      showToast('저장했습니다.');
+      showToast('저장했어요.');
       return true;
     } catch (err) {
       showToast('저장 실패: ' + err.message, () => handleSaveEntry(data));
@@ -5122,7 +5122,7 @@ function App() {
       const inUse = collectImagePaths(displayEntries, displayNotes, { excludeEntryId: entry.id });
       await deleteOrphanedImages(writeCfg, entry.images, inUse, '일지 영구 삭제');
       await removeEntry(entry, '일지 영구 삭제');
-      showToast('영구 삭제했습니다.');
+      showToast('영구 삭제했어요.');
     } catch (err) {
       showToast('삭제 실패: ' + err.message, () => handlePermanentDeleteEntry(entry));
     }

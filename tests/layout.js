@@ -44,7 +44,7 @@ const tooSmall = (list, min = 40) => list.filter(b => b.w < min || b.h < min);
     assert.deepStrictEqual(tooSmall(l), [], JSON.stringify(tooSmall(l)));
     await page.getByRole('button', { name: /기억할 것/ }).click();
     await page.waitForTimeout(300);
-    l = await sizes(page, '[aria-label="메모 수정"], [aria-label="메모 삭제"]');
+    l = await sizes(page, '[aria-label="기억할 것 수정"], [aria-label="기억할 것 삭제"]');
     assert.ok(l.length >= 2); assert.deepStrictEqual(tooSmall(l), [], JSON.stringify(tooSmall(l)));
     l = await sizes(page, '[aria-label="새로고침"], [aria-label$="모드로 전환"]');
     assert.ok(l.length === 2); assert.deepStrictEqual(tooSmall(l), [], JSON.stringify(tooSmall(l)));
@@ -103,7 +103,7 @@ const tooSmall = (list, min = 40) => list.filter(b => b.w < min || b.h < min);
       svgs.forEach(h => assert.strictEqual(h, trashSvg, '삭제 버튼에 휴지통이 아닌 아이콘'));
     }
     await page.getByRole('button', { name: /기억할 것/ }).click();
-    const memo = await page.locator('button[aria-label="메모 삭제"] svg').evaluateAll(els => els.map(e => e.innerHTML));
+    const memo = await page.locator('button[aria-label="기억할 것 삭제"] svg').evaluateAll(els => els.map(e => e.innerHTML));
     assert.ok(memo.length >= 1 && memo.every(h => h === trashSvg), '메모 삭제는 휴지통 아이콘이어야 함');
   }, { seed: rich });
 

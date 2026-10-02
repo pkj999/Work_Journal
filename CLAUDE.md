@@ -8,7 +8,7 @@
 
 - `index.html`을 수정할 때마다, 수정이 끝난 뒤 **최신 `index.html` 내용을 Artifact로 발행**해서
   사용자가 Claude 안에서 바로 열어보고 이어서 수정할 수 있게 할 것. 파일 경로만 알려주고 끝내지 않는다.
-- `index.html`/`sw.js`를 의미 있게 바꾸면 `index.html`의 `APP_VERSION`과 `sw.js`의 `CACHE_NAME` 버전도 같이 올린다(기존 관례).
+- `index.html`/`sw.js`를 의미 있게 바꾸면 `index.html`의 `APP_VERSION`(날짜는 `2026.10.02` 형식)과 `sw.js`의 `CACHE_NAME` 버전도 같이 올린다(기존 관례).
 - 아이콘 파일(`icon-*.png`)을 바꿀 때는 반드시 `index.html`의 아이콘 `<link>` 태그들과 `manifest.json`의 각 `src`,
   `sw.js`의 `APP_SHELL` 안 아이콘 경로에 붙은 `?v=` 쿼리스트링도 같이 올린다. 파일명이 그대로면 iOS Safari 등이
   URL 기준으로 아이콘을 캐싱해서, 내용만 바꾸고 URL을 안 바꾸면 캐시를 지워도 옛날 아이콘이 계속 나온다.
