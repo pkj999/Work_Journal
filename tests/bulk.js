@@ -58,7 +58,7 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
     assert.strictEqual(fake.puts.length, 1, '한 번의 저장이어야 함');
     assert.strictEqual(await bar(page).count(), 0, '선택 모드가 끝나야 함');
     assert.ok(await page.locator('text=2건 표시 중').count() >= 1);
-    assert.ok(await page.locator('text=일지 2건을 휴지통으로 이동했습니다').count() >= 1);
+    assert.ok(await page.locator('text=일지 2건을 휴지통으로 이동했어요').count() >= 1);
   });
 
   await test('확인창을 취소하면 저장 없음 + 선택/모드 유지', async ({ page, fake, setDialogAnswer }) => {
@@ -185,7 +185,7 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
     assert.ok(saved.some(e => e.id === 'ext'), '외부 추가분 유지');
     assert.ok(!saved.some(e => e.id === 'e2'), '외부에서 지운 건 되살아나면 안 됨');
     assert.strictEqual(saved.find(e => e.id === 'e1').favorite, true);
-    assert.ok(await page.locator('text=일지 1건을 즐겨찾기에 추가했습니다').count() >= 1, '실제로 바뀐 건수(1)로 안내해야 함');
+    assert.ok(await page.locator('text=일지 1건을 즐겨찾기에 추가했어요').count() >= 1, '실제로 바뀐 건수(1)로 안내해야 함');
   });
 
   await test('연타 방지: 같은 순간 두 번 눌러도 저장은 한 번', async ({ page, fake }) => {
@@ -473,7 +473,7 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
     const saved = fake.get('data/todos.json');
     assert.strictEqual(saved.filter(t => t.done).length, 3);
     assert.strictEqual(saved.find(t => t.id === 't3').completedAt > 0, true);
-    assert.ok(await page.locator('text=할 일 2건을 완료 처리했습니다').count() >= 1, '실제 바뀐 건수(2)로 안내');
+    assert.ok(await page.locator('text=할 일 2건을 완료 처리했어요').count() >= 1, '실제 바뀐 건수(2)로 안내');
   });
 
   await test('일괄 삭제: 즉시 화면에서 사라지고 서버는 4.5초 뒤 — 실행취소하면 저장 없이 복원', async ({ page, fake }) => {

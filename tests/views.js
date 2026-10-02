@@ -246,9 +246,9 @@ const rich = () => {
     await page.waitForTimeout(400);
     await page.locator('text=기억할 메모').first().click();
     await page.waitForTimeout(300);
-    assert.strictEqual(await page.locator('[aria-label="메모 수정 저장"]').count(), 0);
-    await page.locator('[aria-label="메모 수정"]').first().click();
-    assert.strictEqual(await page.locator('[aria-label="메모 수정 저장"]').count(), 1);
+    assert.strictEqual(await page.locator('[aria-label="기억할 것 수정 저장"]').count(), 0);
+    await page.locator('[aria-label="기억할 것 수정"]').first().click();
+    assert.strictEqual(await page.locator('[aria-label="기억할 것 수정 저장"]').count(), 1);
   }, { seed: () => { const d = seed(); d['data/memos.json'] = [{ id: 'm1', text: '기억할 메모', tags: [], createdAt: 1, updatedAt: 1 }]; return d; } });
 
   await test('할 일 선택 모드에서는 텍스트 눌러도 선택만 되고 수정으로 안 넘어감(기존 동작 유지)', async ({ page }) => {
