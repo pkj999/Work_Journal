@@ -201,5 +201,17 @@ console.log('\n[5단계: 소스 구조 규칙 — 정적 검사]');
     await goTab(page, '설정'); await page.waitForTimeout(400); await audit(page, '설정');
   }, { viewport: { width: 390, height: 844 }, seed: rich2 });
 
+  await test('설정: 문구 삭제(X)가 실제로 동작하고, 색 선택 버튼 클릭으로 색이 바뀜(40px로 키운 뒤에도 기능 유지)', async ({ page, fake }) => {
+    await goTab(page, '설정'); await page.waitForTimeout(500);
+    await page.locator('[aria-label="문구 \\"확인 필요\\" 삭제"]').click();
+    await settle(page);
+    assert.ok(fake.get('data/phrases.json').every(p => p.text !== '확인 필요'), '문구가 삭제돼야 함');
+    const sw = page.locator('[aria-label^="색상 "]');
+    assert.ok(await sw.count() >= 6);
+    await sw.nth(2).click();
+    const ring = await sw.nth(2).locator('span').evaluate(e => e.className.includes('ring-2'));
+    assert.ok(ring, '선택한 색에 표시(링)가 있어야 함');
+  }, { viewport: { width: 390, height: 844 }, seed: rich2 });
+
   summary();
 })();
