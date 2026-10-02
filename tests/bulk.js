@@ -516,7 +516,7 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
 
   await test('수정 중이던 행이 있으면 선택 시작 시 수정 모드를 먼저 닫음', async ({ page }) => {
     await gotoTodos(page);
-    await page.locator('text=할일 하나').first().click(); // 수정 모드 진입
+    await page.locator('[aria-label="할 일 수정"]').first().click(); // 수정 모드 진입(연필 아이콘)
     assert.ok(await page.locator('[aria-label="할 일 수정 저장"]').count() === 1);
     await startSelect(page);
     assert.strictEqual(await page.locator('[aria-label="할 일 수정 저장"]').count(), 0);

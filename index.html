@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.34 · 2026-10-02';
+const APP_VERSION = 'ver.35 · 2026-10-02';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -314,6 +314,17 @@ function fmtTime(ts) {
   const pad = n => String(n).padStart(2, '0');
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+// 시각(타임스탬프) → "10.03 09:10" (올해가 아니면 연도도 붙임). 기록의 작성/수정 시각 표시용
+function fmtStamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  const y = d.getFullYear() === new Date().getFullYear() ? '' : `${d.getFullYear()}.`;
+  return `${y}${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// 수정된 기록인지: 만들 때는 createdAt과 updatedAt이 같고, 고치면 updatedAt만 바뀜 (빠른 기록은 처음엔 updatedAt이 아예 없음)
+const wasEdited = (createdAt, updatedAt) => !!updatedAt && updatedAt !== createdAt;
 function daysUntil(dateStr) {
   if (!dateStr) return null;
   const today = new Date(todayStr() + 'T00:00:00');
@@ -1670,10 +1681,9 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
     <SwipeToDelete disabled={readonly} onDelete={onDelete}>
       <div className={`wj-enter rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-3.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors ${leaving ? 'wj-item-leaving' : ''}`}>
         <div className="flex items-start justify-between gap-2">
-          <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1.5"
-            title={note.updatedAt ? `${fmtDateShort(dateKeyFromDate(new Date(note.updatedAt)))} ${fmtTime(note.updatedAt)}에 마지막으로 수정됨` : undefined}>
-            {fmtDateShort(dateKeyFromDate(note.createdAt ? new Date(note.createdAt) : new Date()))} {fmtTime(note.createdAt)}
-            {note.updatedAt && ' · 수정됨'}
+          <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 flex items-center gap-x-2 gap-y-0.5 flex-wrap" data-testid="note-stamp">
+            <span>{fmtDateShort(dateKeyFromDate(note.createdAt ? new Date(note.createdAt) : new Date()))} {fmtTime(note.createdAt)}</span>
+            {wasEdited(note.createdAt, note.updatedAt) && <span>수정 {fmtStamp(note.updatedAt)}</span>}
             {readonly && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500" title={note._repoLabel ? `보관 레포: ${note._repoLabel}` : '보관 레포'}>
                 보관 레포
@@ -1802,10 +1812,6 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
   const toggleAllSelection = () => sel.setAll(selectedIds.length >= selectableIds.length ? [] : selectableIds);
   const noteLabel = n => `빠른 기록 선택: ${stripEmph(n.text || '사진 기록').replace(/\s+/g, ' ').slice(0, 24)}`;
 
-  const handleEditSave = (note, newText, keepImages, newFiles) => {
-    onEditSave(note, newText, keepImages, newFiles);
-    onEditNote(null);
-  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -1957,8 +1963,6 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
             onClick={() => runBulk(() => onBulkDelete(selectedIds))} />
         </SelectionBar>
       )}
-
-      <NoteEditModal open={!!editingNote} note={editingNote} cfg={editingNote ? repoCfgFor(cfg, editingNote._repo) : cfg} onClose={() => onEditNote(null)} onSave={handleEditSave} saving={savingEdit} />
     </div>
   );
 }
@@ -2072,7 +2076,14 @@ function TodoTab({ todos, onAdd, onToggle, onDelete, onEdit, onClearDone, onBulk
           className={`wj-card-actions shrink-0 -m-1.5 p-1.5 transition-all active:scale-90 ${completingId === t.id ? 'text-emerald-500 wj-check-bounce' : 'text-slate-300 dark:text-slate-600 hover:text-slate-900 dark:hover:text-slate-100'}`}>
           {completingId === t.id ? <CircleCheckBig size={20} /> : <CircleIcon size={20} />}
         </button>
-        <span onClick={() => startEdit(t)} className="flex-1 min-w-0 text-[14px] text-slate-700 dark:text-slate-200 break-words cursor-pointer">{t.text}</span>
+        <div className="flex-1 min-w-0">
+          <span className="block text-[14px] text-slate-700 dark:text-slate-200 break-words">{t.text}</span>
+          {t.createdAt && (
+            <span className="block text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5" data-testid="todo-stamp">
+              작성 {fmtStamp(t.createdAt)}{wasEdited(t.createdAt, t.updatedAt) && ` · 수정 ${fmtStamp(t.updatedAt)}`}
+            </span>
+          )}
+        </div>
         {badge && <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${badge.cls}`}>{badge.txt}</span>}
         {t.due && (
           <button onClick={() => downloadICS(t.text, t.due)} title="캘린더에 추가" aria-label="캘린더에 추가" className="wj-card-actions p-1.5 text-slate-300 dark:text-slate-600 hover:text-[#5B9DF9] active:scale-90 transition-all shrink-0">
@@ -2293,7 +2304,14 @@ function MemoSection({ memos, onAdd, onEdit, onDelete }) {
           ) : (
             <div key={m.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2.5 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
               <div className="flex items-start gap-2.5">
-                <span onClick={() => startEdit(m)} className="flex-1 min-w-0 text-[14px] text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap cursor-pointer">{m.text}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="block text-[14px] text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap">{m.text}</span>
+                  {m.createdAt && (
+                    <span className="block text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5" data-testid="memo-stamp">
+                      작성 {fmtStamp(m.createdAt)}{wasEdited(m.createdAt, m.updatedAt) && ` · 수정 ${fmtStamp(m.updatedAt)}`}
+                    </span>
+                  )}
+                </div>
                 <button onClick={() => startEdit(m)} title="수정" aria-label="메모 수정" className="shrink-0 p-1.5 text-slate-300 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 active:scale-90 transition-all"><Pencil size={15} /></button>
                 <button onClick={() => onDelete(m)} title="삭제" aria-label="메모 삭제" className="shrink-0 p-1.5 text-slate-300 dark:text-slate-600 hover:text-red-500 active:scale-90 transition-all"><X size={15} /></button>
               </div>
@@ -2706,7 +2724,9 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
   const [favBounce, setFavBounce] = useState(false);
   const catMap = categoryMap || CATEGORY_MAP;
   const meta = catMap[entry.category] || catMap['기타'] || CATEGORY_MAP['기타'];
-  const hasMore = (entry.overview && entry.overview.length > 90) || (entry.problem && entry.problem.length > 90) || (entry.solution && entry.solution.length > 90);
+  // 접힌 상태는 2줄까지만 보이므로, 글자 수가 길거나 줄바꿈이 3줄 이상이면 "더보기"가 필요
+  const longText = t => !!t && (t.length > 90 || t.split('\n').length > 2);
+  const hasMore = longText(entry.overview) || longText(entry.problem) || longText(entry.solution);
   const readonly = !!entry._readonly;
   const imgCfg = repoCfgFor(cfg, entry._repo);
   const handleFavClick = () => {
@@ -2724,11 +2744,13 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
               <CategoryBadge category={entry.category} categoryMap={catMap} />
               <ImportanceMeter level={entry.importance} />
-              <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1"
-                title={entry.updatedAt && entry.createdAt && entry.updatedAt !== entry.createdAt
-                  ? `${fmtDateShort(dateKeyFromDate(new Date(entry.updatedAt)))} ${fmtTime(entry.updatedAt)}에 마지막으로 수정됨` : undefined}>
-                <Calendar size={11} /> {fmtDateShort(entry.date)}
-                {entry.updatedAt && entry.createdAt && entry.updatedAt !== entry.createdAt && ' · 수정됨'}
+              <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-x-2 gap-y-0.5 flex-wrap" data-testid="entry-stamp">
+                <span className="inline-flex items-center gap-1"><Calendar size={11} /> {fmtDateShort(entry.date)}</span>
+                {/* 작성 시각: 일지 날짜와 같은 날이면 시간만, 다른 날(나중에 몰아서 쓴 경우)이면 날짜까지 */}
+                {entry.createdAt && (dateKeyFromDate(new Date(entry.createdAt)) === entry.date
+                  ? <span>{fmtTime(entry.createdAt)}</span>
+                  : <span>작성 {fmtStamp(entry.createdAt)}</span>)}
+                {entry.createdAt && wasEdited(entry.createdAt, entry.updatedAt) && <span>수정 {fmtStamp(entry.updatedAt)}</span>}
               </span>
               {readonly && (
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500" title={entry._repoLabel ? `보관 레포: ${entry._repoLabel}` : '보관 레포'}>
@@ -2765,19 +2787,19 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
               {entry.overview && (
                 <div>
                   <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-1">개요</div>
-                  <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.overview} query={query} /></p>
+                  <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.overview} query={query} /></p>
                 </div>
               )}
               {entry.problem && (
                 <div>
                   <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-1">문제 상황</div>
-                  <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.problem} query={query} /></p>
+                  <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.problem} query={query} /></p>
                 </div>
               )}
               {entry.solution && (
                 <div>
                   <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-1">해결 과정</div>
-                  <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.solution} query={query} /></p>
+                  <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.solution} query={query} /></p>
                 </div>
               )}
             </div>
@@ -2788,7 +2810,7 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
         {entry.lesson && (
           <div className="mt-3 flex gap-2 rounded-lg border-l-2 border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-500/10 px-3 py-2.5">
             <Lightbulb size={14} className="text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed break-words"><HighlightText text={entry.lesson} query={query} /></p>
+            <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words"><HighlightText text={entry.lesson} query={query} /></p>
           </div>
         )}
 
@@ -3665,6 +3687,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                     <div key={entry.id} className="flex gap-3">
                       <div className="flex flex-col items-center shrink-0 w-[68px]">
                         <span className="text-[13px] font-mono font-bold text-slate-700 dark:text-slate-200 mt-1">{fmtDateShort(entry.date)}</span>
+                        {entry.createdAt && dateKeyFromDate(new Date(entry.createdAt)) === entry.date && <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{fmtTime(entry.createdAt)}</span>}
                         <span className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" style={{ background: meta.color }} />
                         {!isLast && <div className="flex-1 w-px bg-slate-200 dark:bg-slate-700 mt-1.5 mb-1.5" style={{ minHeight: 24 }} />}
                       </div>
@@ -4977,12 +5000,11 @@ function App() {
     setTab('entries');
     setPreviewEntryId(entry.id); // 바로 수정 화면으로 가지 않고, 먼저 내용만 확인할 수 있게 팝업으로 보여줌
   };
-  // 업무일지 카드에서 "원본 빠른 기록 보기" — 정리하기 전 원본 기록을 찾아 빠른 기록 탭으로 이동 후 보여줌
+  // 업무일지 카드에서 "원본 빠른 기록 보기" — 탭을 옮기지 않고, 지금 보던 화면 위에 팝업으로 바로 보여줌
   const handleViewSourceNote = entry => {
     const noteId = entry.sourceNoteIds && entry.sourceNoteIds[0];
     const note = noteId ? displayNotes.find(n => n.id === noteId) : null;
     if (!note) { showToast('원본 빠른 기록을 찾을 수 없어요. 삭제되었거나, 아직 안 불러온 보관 레포에 있을 수 있어요.'); return; }
-    setTab('quick');
     setPreviewNoteId(note.id); // 바로 수정 화면으로 가지 않고, 먼저 내용만 확인할 수 있게 팝업으로 보여줌
   };
 
@@ -5213,6 +5235,9 @@ function App() {
 
       <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} cfg={cfg} existingProjects={existingProjects} existingTags={existingTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
       <EntryPreviewModal open={!!previewEntry} entry={previewEntry} cfg={cfg} categoryMap={allCategoryMap} onClose={() => setPreviewEntryId(null)} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onViewSource={handleViewSourceNote} />
+      {/* 빠른 기록 수정창: 빠른 기록 탭뿐 아니라 업무일지 탭의 "원본 빠른 기록 보기" 팝업에서도 열려야 해서 앱 전체 수준에 둠 */}
+      <NoteEditModal open={!!editingNote} note={editingNote} cfg={editingNote ? repoCfgFor(cfg, editingNote._repo) : cfg} onClose={() => setEditingNote(null)}
+        onSave={(note, newText, keepImages, newFiles) => { handleEditNoteSave(note, newText, keepImages, newFiles); setEditingNote(null); }} saving={savingNoteEdit} />
       <NotePreviewModal open={!!previewNote} note={previewNote} cfg={cfg} onClose={() => setPreviewNoteId(null)} onEdit={setEditingNote} onDelete={handleDeleteNoteFromPreview} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} />
       <Toast toast={toast} onAction={() => { if (toast && toast.action) toast.action.onClick(); }} />
       <GlobalLightbox />
