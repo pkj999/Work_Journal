@@ -282,7 +282,8 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
     assert.strictEqual(await selectedText(page), '4개 선택됨');
     fake.set('data/entries.json', fake.get('data/entries.json').filter(e => e.id !== 'e2'));
     await page.locator('button[aria-label="새로고침"]').first().click();
-    await page.waitForTimeout(1200);
+    // 고정 시간 대기 대신, 갱신이 반영될 때까지(최대 10초) 기다림 — 느린 환경에서 흔들리던 테스트
+    await page.waitForFunction(() => /3개 선택됨/.test((document.querySelector('[role=toolbar] [aria-live]') || {}).textContent || ''), null, { timeout: 10000 });
     assert.strictEqual(await selectedText(page), '3개 선택됨');
   });
 
