@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.41 · 2026.10.07';
+const APP_VERSION = 'ver.42 · 2026.10.07';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -346,6 +346,21 @@ function buildTagIndex(entries) {
     const label = [...m.spell.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
     return { key: m.key, label, count: m.count, last: m.last };
   }).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+// 기록할 때 한 번에 눌러 붙일 "최근·자주 쓴 태그": 가장 최근 일지 N개에서 많이 쓴 순(같으면 더 최근에 쓴 것). 표기가 달라도 하나로 합치고 가장 최근 표기를 보여줌
+function buildRecentTags(entries, { window = 30, limit = 8 } = {}) {
+  const sorted = [...(entries || [])].filter(e => !e.deleted).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0)).slice(0, window);
+  const map = new Map();
+  sorted.forEach((e, idx) => {
+    const seen = new Set();
+    (e.tags || []).forEach(raw => {
+      const label = String(raw == null ? '' : raw).trim(); const key = tagKey(label);
+      if (!key || seen.has(key)) return; seen.add(key);
+      const m = map.get(key);
+      if (!m) map.set(key, { key, label, count: 1, first: idx }); else m.count++;
+    });
+  });
+  return [...map.values()].sort((a, b) => b.count - a.count || a.first - b.first).slice(0, limit);
 }
 // 수정된 기록인지: 만들 때는 createdAt과 updatedAt이 같고, 고치면 updatedAt만 바뀜 (빠른 기록은 처음엔 updatedAt이 아예 없음)
 const wasEdited = (createdAt, updatedAt) => !!updatedAt && updatedAt !== createdAt;
@@ -2623,7 +2638,7 @@ function ComboBoxInput({ value, onChange, suggestions, placeholder, autoFocus, i
 }
 
 // 태그 입력 — 칩으로 보여주고, Enter/쉼표로 추가, 기존에 썼던 태그를 자동완성 후보로 보여줌 (오타로 태그 흩어지는 것 방지)
-function TagInput({ tags, onChange, suggestions, placeholder }) {
+function TagInput({ tags, onChange, suggestions, placeholder, quickTags }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
   const filtered = useMemo(() => {
@@ -2635,9 +2650,13 @@ function TagInput({ tags, onChange, suggestions, placeholder }) {
 
   const commit = raw => {
     const v = raw.trim();
-    if (v && !tags.includes(v)) onChange([...tags, v]);
+    if (v && !tags.some(t => tagKey(t) === tagKey(v))) onChange([...tags, v]); // 표기만 다른 같은 태그("A제품"/"a제품")는 한 번만
     setText('');
   };
+  const picked = new Set(tags.map(tagKey));
+  const quick = quickTags || [];
+  // 최근 태그 칩은 누르면 추가, 다시 누르면 해제(칩은 제자리에 남아서, 실수로 두 번 눌러도 옆 칩이 딸려 오지 않음)
+  const toggleQuick = q => { if (picked.has(q.key)) onChange(tags.filter(t => tagKey(t) !== q.key)); else commit(q.label); };
   const handleKeyDown = e => {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(text); }
     else if (e.key === 'Backspace' && !text && tags.length > 0) onChange(tags.slice(0, -1));
@@ -2658,6 +2677,14 @@ function TagInput({ tags, onChange, suggestions, placeholder }) {
           placeholder={tags.length ? '' : placeholder}
           className="flex-1 min-w-[100px] py-0.5 bg-transparent text-[13px] text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none" />
       </div>
+      {quick.length > 0 && (
+        <div className="mt-2" role="group" aria-label="최근 태그">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">최근 쓴 태그 <span className="font-normal">(눌러서 추가·해제)</span></div>
+          <div className="flex flex-wrap gap-2">
+            {quick.map(q => <FilterChip key={q.key} selected={picked.has(q.key)} onClick={() => toggleQuick(q)}>{q.label}</FilterChip>)}
+          </div>
+        </div>
+      )}
       {focused && filtered.length > 0 && (
         <div className="absolute z-20 left-0 right-0 mt-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg overflow-hidden max-h-48 overflow-y-auto">
           {filtered.map(s => (
@@ -2924,7 +2951,7 @@ function EntryPreviewModal({ open, entry, cfg, categoryMap, onClose, onEdit, onD
 
 const EMPTY_FORM = { date: todayStr(), title: '', category: '개발', importance: '중', bullets: [''], overview: '', problem: '', solution: '', lesson: '', tags: [], links: [], dataPath: '' };
 
-function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, existingTags, categories, onClose, onSave }) {
+function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, existingTags, recentTags, categories, onClose, onSave }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [keepImages, setKeepImages] = useState([]);
@@ -3116,6 +3143,11 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
           </div>
 
           <div>
+            <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5"><TagIcon size={12} /> 태그 <span className="text-slate-500 dark:text-slate-400 font-normal">(여러 날에 걸친 일을 묶어 볼 때 써요 · Enter로 추가)</span></label>
+            <TagInput tags={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} suggestions={existingTags || []} quickTags={recentTags} placeholder="예: A제품, 가공정" />
+          </div>
+
+          <div>
             <div className="flex items-center justify-between gap-2 mb-1 min-h-8">
               <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400"><ListChecks size={12} /> 주요 성과 및 한 일</label>
               <EmphButton info={bulletEmph.info} onApply={bulletEmph.apply} />
@@ -3207,11 +3239,6 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
               </button>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoFiles} />
             </div>
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5"><TagIcon size={12} /> 태그 <span className="text-slate-500 dark:text-slate-400 font-normal">(Enter로 추가)</span></label>
-            <TagInput tags={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} suggestions={existingTags || []} placeholder="예: React, 성능개선, 협업" />
           </div>
         </div>
 
@@ -4206,6 +4233,7 @@ function App() {
     return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([title]) => title);
   }, [displayEntries]);
   const existingTags = useMemo(() => [...new Set(displayEntries.flatMap(e => e.tags || []))].sort(), [displayEntries]);
+  const recentTags = useMemo(() => buildRecentTags(displayEntries), [displayEntries]);
 
   /* ---------- 6. 전체 데이터 백업 ---------- */
   // 설정 화면의 "전체 데이터 백업" — 활성 레포 + 보관 레포까지 전부 새로 불러와서 JSON 파일로 내보냄.
@@ -5342,7 +5370,7 @@ function App() {
         </div>
       </div>
 
-      <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} cfg={cfg} existingProjects={existingProjects} existingTags={existingTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
+      <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} cfg={cfg} existingProjects={existingProjects} existingTags={existingTags} recentTags={recentTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
       <EntryPreviewModal open={!!previewEntry} entry={previewEntry} cfg={cfg} categoryMap={allCategoryMap} onClose={() => setPreviewEntryId(null)} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onViewSource={handleViewSourceNote} />
       {/* 빠른 기록 수정창: 빠른 기록 탭뿐 아니라 업무일지 탭의 "원본 빠른 기록 보기" 팝업에서도 열려야 해서 앱 전체 수준에 둠 */}
       <NoteEditModal open={!!editingNote} note={editingNote} cfg={editingNote ? repoCfgFor(cfg, editingNote._repo) : cfg} onClose={() => setEditingNote(null)}
