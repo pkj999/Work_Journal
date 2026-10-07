@@ -198,8 +198,13 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     assert.ok(await page.locator('text=조건에 모두 맞는 일지가 없어요').count() >= 1);
   });
 
-  await T('일지가 하나도 없어도 프로젝트는 만들 수 있고(빈 상태 문구에 막히지 않음)', async ({ page }) => {
+  await T('일지가 하나도 없어도 프로젝트 카드가 보이고 새 프로젝트도 만들 수 있음(빈 상태 문구에 막히지 않음)', async ({ page, fake }) => {
     await openMore(page);
+    assert.strictEqual(await cards(page).count(), 1);
+    assert.strictEqual(await page.locator('text=아직 모아볼 일지가 없어요').count(), 0);
+    await page.getByRole('button', { name: '새 프로젝트' }).click();
+    await page.getByLabel('새 프로젝트 이름').fill('두 번째'); await page.getByRole('button', { name: '만들기' }).click(); await settle(page);
+    assert.strictEqual(fake.get('data/projects.json').length, 2);
   }, { seed: () => { const d = seed(); d['data/entries.json'] = []; d['data/projects.json'] = [P('pz', '기록 없는 프로젝트', '진행중', null)]; return d; } });
 
   console.log('\n[프로젝트: 상세 편집]');
@@ -229,7 +234,7 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     assert.strictEqual(await page.getByTestId('project-detail').count(), 1);
     assert.strictEqual(await timeline(page).count(), 3);
     assert.strictEqual(fake.get('data/projects.json').find(x => x.id === 'pa').status, '완료');
-    assert.ok(!(await cards(page).filter({ hasText: 'A제품 생산' }).innerText()).includes('D-10') || true);
+    assert.ok((await cardText(page, 'A제품 생산')).includes('완료'), '카드 배지가 완료로 바뀜');
   });
 
   await T('목적: 입력칸을 벗어나면 저장, 바뀐 게 없으면 저장 안 함', async ({ page, fake }) => {
@@ -255,8 +260,9 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     assert.strictEqual(await cards(page).filter({ hasText: 'C라인 정리' }).getByTestId('project-deadline').count(), 0);
   });
 
-  await T('마감일이 오늘이면 "오늘 마감"', async ({ page }) => {
+  await T('마감일이 오늘이면 "오늘 마감"(경고색 노랑)', async ({ page }) => {
     await openMore(page);
+    assert.ok((await cardText(page, '오늘 끝낼 일')).includes('오늘 마감'));
   }, { seed: () => { const d = seed(); d['data/projects.json'] = [P('pt', '오늘 끝낼 일', '진행중', 0)]; return d; } });
 
   await T('이름 바꾸기: 새 이름 저장, 일지의 연결은 그대로(프로젝트 이름만 바뀜)', async ({ page, fake }) => {
@@ -513,7 +519,7 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     await openLegacy(page);
     fake.failNext.push({ path: 'data/entries.json', status: 500 });
     await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
-    assert.ok(fake.get('data/entries.json').every(e => e.projectId !== (fake.get('data/projects.json') || []).find(x => x.name === 'Z제품 시험')?.id || !e.projectId));
+    assert.ok(['l1', 'l2', 'l3'].every(id => !fake.get('data/entries.json').find(e => e.id === id).projectId), '일지 연결이 하나도 안 바뀜');
     assert.ok(await page.locator('text=묶기 실패').count() >= 1);
   }, { seed: legacyScenario });
 
@@ -549,14 +555,12 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     await settle(page); await settle(page);
   };
 
-  await T('JSON 백업에 프로젝트가 들어가고, 다른 저장소로 복원하면 일지의 연결이 유지됨', async ({ page, fake }) => {
+  await T('JSON 백업 파일에 프로젝트 4개와 일지의 projectId가 들어감', async ({ page, fake }) => {
     await gotoSettings(page);
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'JSON 백업', exact: true }).click()]);
     const body = JSON.parse(require('fs').readFileSync(await dl.path(), 'utf8'));
     assert.strictEqual(body.projects.length, 4);
     assert.strictEqual(body.entries.find(e => e.id === 'a1').projectId, 'pa');
-    // 빈 저장소에 가져오기 → 프로젝트와 연결이 그대로
-    await page.close();
   }, { seed: scenario });
 
   await T('JSON 가져오기: 프로젝트 새로 추가 + 일지 projectId 연결 유지, 같은 이름 프로젝트는 합쳐서 연결', async ({ page, fake }) => {
