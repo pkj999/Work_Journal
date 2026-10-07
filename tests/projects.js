@@ -456,6 +456,89 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.notStrictEqual(live[0].id, 'old');
   }, { seed: () => { const d = seed(); d['data/projects.json'] = [P('old', '옛날 프로젝트', '진행중', null, { deleted: true, deletedAt: now })]; return d; } });
 
+
+  console.log('\n[프로젝트: 옛 기록 묶기·이어쓰기]');
+
+  const legacyScenario = () => {
+    const d = seed();
+    d['data/entries.json'] = [
+      E('l1', 9, 'Z제품 시험', ['Z']), E('l2', 6, 'Z제품 시험', []), E('l3', 3, 'Z제품 시험', []),
+      E('l4', 2, 'Z제품 시험', [], { deleted: true, deletedAt: now - day }),
+      E('l5', 1, '다른 업무', []),
+      E('l6', 4, 'Z제품 시험', [], { projectId: 'pa' }), // 이미 다른 프로젝트에 연결된 건 건드리지 않음
+    ];
+    d['data/projects.json'] = [P('pa', '이미 있는 프로젝트', '진행중', null)];
+    return d;
+  };
+  const openLegacy = async page => { await openMore(page); await page.getByRole('button', { name: /프로젝트에 연결 안 된 기록/ }).click(); await page.getByRole('group', { name: '업무명' }).getByRole('button', { name: /^Z제품 시험/ }).click(); };
+
+  await test('업무명을 고르면 [프로젝트로 만들기]가 보이고, 누르면 같은 업무명의 연결 안 된 일지만 1번 저장으로 묶임(삭제됨·다른 프로젝트 일지는 그대로)', async ({ page, fake }) => {
+    await openLegacy(page);
+    await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
+    const ps = fake.get('data/projects.json'); const pr = ps.find(x => x.name === 'Z제품 시험');
+    assert.ok(pr && pr.status === '진행중');
+    const es = fake.get('data/entries.json');
+    assert.deepStrictEqual(['l1', 'l2', 'l3'].map(id => es.find(e => e.id === id).projectId), [pr.id, pr.id, pr.id]);
+    assert.ok(!es.find(e => e.id === 'l4').projectId, '휴지통 일지는 그대로');
+    assert.strictEqual(es.find(e => e.id === 'l6').projectId, 'pa');
+    assert.ok(!es.find(e => e.id === 'l5').projectId);
+    assert.strictEqual(putsOf(fake, 'data/entries.json').length, 1, '일지 파일 저장 1번');
+    assert.strictEqual(es.find(e => e.id === 'l1').updatedAt, now - 9 * day, '수정 시각은 바뀌지 않음');
+    assert.strictEqual(await timeline(page).count(), 3, '새 프로젝트가 선택돼 3건이 모임');
+    assert.strictEqual(await page.getByTestId('project-detail').count(), 1);
+  }, { seed: legacyScenario });
+
+  await test('묶은 뒤 [실행취소] → 일지 연결이 원래대로, 새로 만든 프로젝트는 삭제 표시', async ({ page, fake }) => {
+    await openLegacy(page);
+    await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
+    await page.getByRole('button', { name: '실행취소' }).click(); await settle(page); await settle(page);
+    const es = fake.get('data/entries.json');
+    assert.ok(['l1', 'l2', 'l3'].every(id => !es.find(e => e.id === id).projectId));
+    assert.strictEqual(es.find(e => e.id === 'l6').projectId, 'pa');
+    assert.ok(fake.get('data/projects.json').find(x => x.name === 'Z제품 시험').deleted);
+    assert.strictEqual(await cards(page).filter({ hasText: 'Z제품 시험' }).count(), 0);
+  }, { seed: legacyScenario });
+
+  await test('같은 이름의 프로젝트가 이미 있으면 새로 만들지 않고 거기로 묶음(되돌려도 그 프로젝트는 남음)', async ({ page, fake }) => {
+    await openLegacy(page);
+    await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
+    assert.strictEqual(fake.get('data/projects.json').filter(x => x.name === 'Z제품 시험').length, 1);
+    await page.getByRole('button', { name: '실행취소' }).click(); await settle(page); await settle(page);
+    assert.ok(!fake.get('data/projects.json').find(x => x.name === 'Z제품 시험').deleted);
+  }, { seed: () => { const d = legacyScenario(); d['data/projects.json'].push(P('pz', 'Z제품 시험', '진행중', null)); return d; } });
+
+  await test('묶기 저장이 실패하면 일지는 그대로이고 안내가 뜸', async ({ page, fake }) => {
+    await openLegacy(page);
+    fake.failNext.push({ path: 'data/entries.json', status: 500 });
+    await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
+    assert.ok(fake.get('data/entries.json').every(e => e.projectId !== (fake.get('data/projects.json') || []).find(x => x.name === 'Z제품 시험')?.id || !e.projectId));
+    assert.ok(await page.locator('text=묶기 실패').count() >= 1);
+  }, { seed: legacyScenario });
+
+  await test('프로젝트 상세의 [이 프로젝트에 기록 쓰기] → 폼이 그 프로젝트·이름으로 채워져 열리고 저장하면 연결됨', async ({ page, fake }) => {
+    await openMore(page);
+    await cards(page).filter({ hasText: 'A제품 생산' }).click();
+    await page.getByRole('button', { name: '이 프로젝트에 기록 쓰기' }).click(); await page.waitForTimeout(500);
+    assert.strictEqual(await form(page).getByLabel(/^프로젝트/).inputValue(), 'pa');
+    assert.strictEqual(await form(page).getByPlaceholder(TITLE).inputValue(), 'A제품 생산');
+    await form(page).getByPlaceholder(TITLE).fill('A제품 마무리');
+    await save(page);
+    assert.strictEqual(fake.get('data/entries.json').find(x => x.title === 'A제품 마무리').projectId, 'pa');
+    await page.getByRole('button', { name: '새 일지 작성' }).click().catch(() => {});
+  }, { seed: scenario });
+
+  await test('이어쓰기로 열었다 닫은 뒤 [새 일지 작성]을 누르면 프로젝트 선택이 비어 있음(이전 값이 안 남음)', async ({ page }) => {
+    await openMore(page);
+    await cards(page).filter({ hasText: 'A제품 생산' }).click();
+    await page.getByRole('button', { name: '이 프로젝트에 기록 쓰기' }).click(); await page.waitForTimeout(500);
+    await page.getByRole('button', { name: /닫기|취소/ }).first().click().catch(() => {});
+    await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+    if (await form(page).count()) { page.once('dialog', d => d.accept()); await page.getByRole('button', { name: /닫기|취소/ }).first().click(); await page.waitForTimeout(300); }
+    await page.getByRole('button', { name: '새 일지 작성' }).click(); await page.waitForTimeout(500);
+    assert.strictEqual(await form(page).getByLabel(/^프로젝트/).inputValue(), '');
+    assert.strictEqual(await form(page).getByPlaceholder(TITLE).inputValue(), '');
+  }, { seed: scenario });
+
   console.log('\n[프로젝트: 백업·내보내기]');
 
   const gotoSettings = async page => { await goTab(page, '설정'); };
