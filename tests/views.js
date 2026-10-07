@@ -54,9 +54,9 @@ const rich = () => {
 
   await test('일지 미리보기(달력/타임라인) 안의 [원본 보기]도 탭 이동 없이 동작', async ({ page }) => {
     await gotoEntries(page);
-    await page.getByRole('button', { name: '프로젝트별' }).click();
+    await page.getByRole('button', { name: '모아보기' }).click();
     await page.waitForTimeout(400);
-    await page.getByRole('button', { name: '프로젝트A', exact: true }).click(); // 프로젝트 칩 선택 → 타임라인
+    await page.getByRole('button', { name: /^프로젝트A/ }).click(); // 프로젝트 칩 선택 → 타임라인
     await page.waitForTimeout(400);
     await page.locator('button.text-left').first().click(); // 타임라인 카드 → 일지 미리보기 팝업
     await page.waitForTimeout(500);

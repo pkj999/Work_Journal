@@ -145,12 +145,12 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
     assert.strictEqual(fake.get('data/entries.json').filter(e => e.favorite).length, 2);
   });
 
-  await test('하이라이트/프로젝트별 화면에는 "선택" 버튼이 없음(목록 보기에서만 제공)', async ({ page }) => {
+  await test('하이라이트/모아보기 화면에는 "선택" 버튼이 없음(목록 보기에서만 제공)', async ({ page }) => {
     await gotoEntries(page);
     await page.getByRole('button', { name: '하이라이트' }).click();
     await page.waitForTimeout(300);
     assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 0);
-    await page.getByRole('button', { name: '프로젝트별' }).click();
+    await page.getByRole('button', { name: '모아보기' }).click();
     await page.waitForTimeout(300);
     assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 0);
   });

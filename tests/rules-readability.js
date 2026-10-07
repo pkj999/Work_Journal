@@ -34,6 +34,7 @@ async function run(theme) {
   await go('빠른 기록'); await grab('빠른 기록');
   await go('할 일'); await grab('할 일'); await page.getByRole('button', { name: /기억할 것/ }).click(); await page.waitForTimeout(300); await grab('기억할 것');
   await go('업무일지'); await grab('업무일지'); await page.getByRole('button', { name: '달력' }).click(); await page.waitForTimeout(300); await grab('달력');
+  await page.getByRole('button', { name: '모아보기' }).click(); await page.waitForTimeout(300); await grab('모아보기'); await page.getByRole('group', { name: '태그' }).getByRole('button').first().click(); await page.waitForTimeout(300); await grab('모아보기(태그 선택)');
   await page.getByRole('button', { name: '목록' }).first().click(); await page.waitForTimeout(200);
   await page.getByRole('button', { name: '새 일지 작성' }).click(); await page.waitForTimeout(500); await grab('일지 작성'); await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   await go('설정'); await grab('설정');

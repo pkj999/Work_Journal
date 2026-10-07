@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.40 · 2026.10.02';
+const APP_VERSION = 'ver.41 · 2026.10.07';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -322,6 +322,30 @@ function fmtStamp(ts) {
   const pad = n => String(n).padStart(2, '0');
   const y = d.getFullYear() === new Date().getFullYear() ? '' : `${d.getFullYear()}.`;
   return `${y}${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// 태그 비교용 키: 대소문자·띄어쓰기를 무시한다("A제품" = "a제품" = "A 제품"). 화면에는 가장 많이 쓴 표기를 보여줌
+const tagKey = t => String(t == null ? '' : t).toLowerCase().replace(/\s+/g, '');
+// 일지들에서 태그 목록 만들기: [{ key, label, count, last }] — 많이 쓴 순(같으면 이름순). 같은 키의 표기는 하나로 합치고 label은 가장 많이 쓴 표기
+function buildTagIndex(entries) {
+  const map = new Map();
+  (entries || []).forEach(e => {
+    const seen = new Set();
+    (e.tags || []).forEach(raw => {
+      const label = String(raw == null ? '' : raw).trim();
+      const key = tagKey(label);
+      if (!key || seen.has(key)) return; // 한 일지에 같은 태그가 두 번 있어도 1건으로 셈
+      seen.add(key);
+      let m = map.get(key);
+      if (!m) { m = { key, spell: new Map(), count: 0, last: '' }; map.set(key, m); }
+      m.count++;
+      m.spell.set(label, (m.spell.get(label) || 0) + 1);
+      if ((e.date || '') > m.last) m.last = e.date || '';
+    });
+  });
+  return [...map.values()].map(m => {
+    const label = [...m.spell.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+    return { key: m.key, label, count: m.count, last: m.last };
+  }).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 // 수정된 기록인지: 만들 때는 createdAt과 updatedAt이 같고, 고치면 updatedAt만 바뀜 (빠른 기록은 처음엔 updatedAt이 아예 없음)
 const wasEdited = (createdAt, updatedAt) => !!updatedAt && updatedAt !== createdAt;
@@ -1654,6 +1678,18 @@ function StampLine({ createdAt, updatedAt, testId }) {
     <span className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5" data-testid={testId}>
       작성 {fmtStamp(createdAt)}{wasEdited(createdAt, updatedAt) && ` · 수정 ${fmtStamp(updatedAt)}`}
     </span>
+  );
+}
+
+/* 고르는 칩(프로젝트·태그 필터) 공용: 높이 36px 이상, 선택되면 진하게. aria-pressed로 선택 상태를 알림 */
+function FilterChip({ selected, onClick, count, children }) {
+  return (
+    <button type="button" aria-pressed={!!selected} onClick={onClick}
+      className={`inline-flex items-center gap-1.5 min-h-9 px-3 rounded-lg border text-[12px] font-medium whitespace-nowrap transition-colors active:scale-95 ${selected
+        ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-transparent'
+        : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'}`}>
+      {children}{count != null && <span className={`font-mono text-[11px] ${selected ? 'opacity-80' : 'text-slate-500 dark:text-slate-400'}`}>{count}</span>}
+    </button>
   );
 }
 
@@ -3392,6 +3428,8 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
   const [calDate, setCalDate] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [selectedDay, setSelectedDay] = useState(null); // 'YYYY-MM-DD' | null — 바텀시트에 표시 중인 날짜
   const [timelineProject, setTimelineProject] = useState(null);
+  const [timelineTags, setTimelineTags] = useState([]); // 모아보기에서 고른 태그 키들(여러 개면 모두 달린 일지만)
+  const [showAllTags, setShowAllTags] = useState(false);
   const [yearToggles, setYearToggles] = useState({}); // 프로젝트별 보기에서 연도 그룹을 펼쳤는지 여부 (직접 클릭해서 바꾼 것만 기록)
   const [highlightYear, setHighlightYear] = useState(() => new Date().getFullYear());
 
@@ -3421,7 +3459,9 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
   const handlePreviewFromSheet = entry => { setSelectedDay(null); onPreviewEntry(entry); };
 
   const projects = useMemo(() => [...new Set(activeEntries.map(e => e.title).filter(Boolean))].sort(), [activeEntries]);
-  const allTags = useMemo(() => [...new Set(activeEntries.flatMap(e => e.tags || []))].sort(), [activeEntries]);
+  const tagIndex = useMemo(() => buildTagIndex(activeEntries), [activeEntries]);
+  const allTags = useMemo(() => tagIndex.map(t => t.label).sort((a, b) => a.localeCompare(b)), [tagIndex]); // 목록 보기의 "전체 태그" 필터용(표기만 다른 태그는 하나로)
+  const projectCounts = useMemo(() => { const m = new Map(); activeEntries.forEach(e => { if (e.title) m.set(e.title, (m.get(e.title) || 0) + 1); }); return m; }, [activeEntries]);
   // "프로젝트별" 보기용 — 최근에 손댄 프로젝트가 먼저 오도록
   const projectsByRecency = useMemo(() => {
     const map = new Map();
@@ -3431,16 +3471,31 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
     });
     return [...map.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([t]) => t);
   }, [activeEntries]);
+  // 고른 프로젝트·태그가 삭제·이름 변경 등으로 사라지면 선택에서 뺌(안 보이는 조건이 남아 결과가 비어 보이는 것 방지)
   useEffect(() => {
-    if (view === 'project' && (!timelineProject || !projectsByRecency.includes(timelineProject))) {
-      setTimelineProject(projectsByRecency[0] || null);
-    }
-  }, [view, projectsByRecency, timelineProject]);
+    if (timelineProject && !projectsByRecency.includes(timelineProject)) setTimelineProject(null);
+    const keys = new Set(tagIndex.map(t => t.key));
+    setTimelineTags(prev => (prev.every(k => keys.has(k)) ? prev : prev.filter(k => keys.has(k))));
+  }, [projectsByRecency, tagIndex]);
+  const hasTimelineFilter = !!timelineProject || timelineTags.length > 0;
+  // 모아보기 결과: 프로젝트(고른 경우)와 고른 태그가 "모두" 맞는 일지를 날짜순(오래된 것 위)으로 — 아무것도 안 골랐으면 비어 있음
   const timelineEntries = useMemo(() => {
-    if (!timelineProject) return [];
-    return activeEntries.filter(e => e.title === timelineProject)
+    if (!hasTimelineFilter) return [];
+    return activeEntries
+      .filter(e => (!timelineProject || e.title === timelineProject))
+      .filter(e => { const ks = new Set((e.tags || []).map(tagKey)); return timelineTags.every(k => ks.has(k)); })
       .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || 0) - (b.createdAt || 0));
-  }, [activeEntries, timelineProject]);
+  }, [activeEntries, timelineProject, timelineTags, hasTimelineFilter]);
+  const toggleTimelineTag = key => setTimelineTags(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
+  const clearTimelineFilter = () => { setTimelineProject(null); setTimelineTags([]); };
+  // 태그가 많을 땐 많이 쓴 순으로 먼저 일부만 보이고 "더 보기"로 펼침. 고른 태그는 접혀 있어도 항상 보이게 포함
+  const TAG_PREVIEW = 16;
+  const shownTags = useMemo(() => {
+    if (showAllTags || tagIndex.length <= TAG_PREVIEW) return tagIndex;
+    const head = tagIndex.slice(0, TAG_PREVIEW);
+    const picked = tagIndex.slice(TAG_PREVIEW).filter(t => timelineTags.includes(t.key));
+    return [...head, ...picked];
+  }, [tagIndex, showAllTags, timelineTags]);
 
   // "프로젝트별" 보기 — 프로젝트가 많아질 걸 대비해 연도별로 묶어서, 최근 연도만 기본으로 펼쳐둠
   const projectsByYear = useMemo(() => {
@@ -3477,7 +3532,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       .filter(e => !projectFilter || e.title === projectFilter)
       .filter(e => !categoryFilter || e.category === categoryFilter)
       .filter(e => !importanceFilter || e.importance === importanceFilter)
-      .filter(e => !tagFilter || (e.tags || []).includes(tagFilter))
+      .filter(e => !tagFilter || (e.tags || []).some(t => tagKey(t) === tagKey(tagFilter)))
       .filter(e => !favoriteOnly || e.favorite)
       .filter(e => !monthFilter || (e.date || '').startsWith(currentMonthKey))
       .filter(e => {
@@ -3614,7 +3669,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         </button>
         <button onClick={() => setView('project')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${view === 'project' ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
-          <FolderKanban size={13} /> 프로젝트별
+          <FolderKanban size={13} /> 모아보기
         </button>
         <button onClick={() => setView('highlights')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${view === 'highlights' ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
@@ -3640,47 +3695,70 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         </React.Fragment>
       ) : view === 'project' ? (
         <React.Fragment>
-          {projectsByYear.length === 0 ? (
-            <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">아직 프로젝트가 없어요.</div>
+          {activeEntries.length === 0 ? (
+            <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">아직 모아볼 일지가 없어요.</div>
           ) : (
             <React.Fragment>
-              <div className="space-y-2.5">
-                {projectsByYear.map((g, idx) => {
-                  const open = isYearOpen(g.year, idx);
-                  return (
-                    <div key={g.year}>
-                      <button onClick={() => toggleYear(g.year, idx)}
-                        className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 active:scale-95 transition-transform mb-1.5">
-                        <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
-                        {g.year === '날짜 없음' ? g.year : `${g.year}년`}
-                        <span className="text-slate-500 dark:text-slate-400 font-normal">· {g.projects.length}개</span>
-                      </button>
-                      {open && (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {g.projects.map(p => (
-                            <button key={p} onClick={() => setTimelineProject(p)}
-                              className={`px-2.5 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors ${timelineProject === p ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900' : 'bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600'}`}>
-                              {p}
-                            </button>
-                          ))}
+              {/* 모아보기: 프로젝트(업무명)나 태그를 고르면 날짜와 상관없이 그 기록만 날짜순으로 모아서 보여줌 */}
+              <div className="space-y-3.5">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1"><FolderKanban size={11} /> 프로젝트 <span className="font-normal">(업무명)</span></div>
+                  <div className="space-y-2.5" role="group" aria-label="프로젝트">
+                    {projectsByYear.map((g, idx) => {
+                      const open = isYearOpen(g.year, idx);
+                      return (
+                        <div key={g.year}>
+                          <TextAction onClick={() => toggleYear(g.year, idx)} className="-ml-2 font-semibold">
+                            <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                            {g.year === '날짜 없음' ? g.year : `${g.year}년`}
+                            <span className="font-normal">· {g.projects.length}개</span>
+                          </TextAction>
+                          {open && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {g.projects.map(pr => (
+                                <FilterChip key={pr} selected={timelineProject === pr} count={projectCounts.get(pr)} onClick={() => setTimelineProject(timelineProject === pr ? null : pr)}>{pr}</FilterChip>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {tagIndex.length > 0 && (
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1"><TagIcon size={11} /> 태그 <span className="font-normal">(여러 개 고르면 모두 달린 기록만)</span></div>
+                    <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="태그">
+                      {shownTags.map(t => (
+                        <FilterChip key={t.key} selected={timelineTags.includes(t.key)} count={t.count} onClick={() => toggleTimelineTag(t.key)}>{t.label}</FilterChip>
+                      ))}
                     </div>
-                  );
-                })}
+                    {tagIndex.length > TAG_PREVIEW && (
+                      <TextAction onClick={() => setShowAllTags(v => !v)} className="-ml-2 mt-0.5">{showAllTags ? '태그 접기' : `태그 ${tagIndex.length - TAG_PREVIEW}개 더 보기`}</TextAction>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {timelineEntries.length > 0 && (
-                <div className="flex items-center gap-3 px-0.5 text-[12px] text-slate-500 dark:text-slate-400 font-mono">
-                  <span>{fmtDateShort(timelineEntries[0].date)} → {fmtDateShort(timelineEntries[timelineEntries.length - 1].date)}</span>
-                  <span>· {timelineEntries.length}건</span>
-                </div>
+              {!hasTimelineFilter ? (
+                <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">위에서 프로젝트나 태그를 고르면, 그 기록만 날짜순으로 모아서 보여줘요.</div>
+              ) : (
+                <React.Fragment>
+                  <ToolbarRow left={timelineEntries.length > 0 ? `${fmtDateShort(timelineEntries[0].date)} → ${fmtDateShort(timelineEntries[timelineEntries.length - 1].date)} · ${timelineEntries.length}건` : '0건'}>
+                    <TextAction icon={X} onClick={clearTimelineFilter}>모두 해제</TextAction>
+                  </ToolbarRow>
+                  {timelineEntries.length === 0 && (
+                    <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-[13px]">조건에 모두 맞는 일지가 없어요. 태그를 하나 빼 보세요.</div>
+                  )}
+                </React.Fragment>
               )}
 
               <div className="flex flex-col">
                 {timelineEntries.map((entry, i) => {
                   const meta = (categoryMap || CATEGORY_MAP)[entry.category] || (categoryMap || CATEGORY_MAP)['기타'] || CATEGORY_MAP['기타'];
                   const isLast = i === timelineEntries.length - 1;
+                  const bullets = (entry.bullets || []).filter(Boolean);
                   return (
                     <div key={entry.id} className="flex gap-3">
                       <div className="flex flex-col items-center shrink-0 w-[68px]">
@@ -3689,15 +3767,36 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                         <span className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" style={{ background: meta.color }} />
                         {!isLast && <div className="flex-1 w-px bg-slate-200 dark:bg-slate-700 mt-1.5 mb-1.5" style={{ minHeight: 24 }} />}
                       </div>
-                      <button onClick={() => onPreviewEntry(entry)} className="flex-1 min-w-0 text-left rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-700 p-3.5 mb-3 active:scale-[0.98] transition-all">
+                      <button onClick={() => onPreviewEntry(entry)} data-testid="timeline-card" className="flex-1 min-w-0 text-left rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-700 p-3.5 mb-3 active:scale-[0.98] transition-all">
                         <div className="flex items-center gap-2 flex-wrap mb-1.5">
                           <CategoryBadge category={entry.category} size="sm" categoryMap={categoryMap} />
                           <ImportanceMeter level={entry.importance} showLabel={false} />
                           {entry.favorite && <Star size={12} className="text-[#E8A93B]" fill="#E8A93B" />}
                           {entry._readonly && <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">보관 레포</span>}
                         </div>
+                        {/* 프로젝트를 안 골랐으면 일지마다 업무명이 다를 수 있어서 제목도 보여줌 */}
+                        {!timelineProject && <div className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words mb-1"><HighlightText text={entry.title || '(제목 없음)'} query="" /></div>}
+                        {bullets.length > 0 && (
+                          <ul className="space-y-0.5 mb-1">
+                            {bullets.slice(0, 3).map((b, bi) => (
+                              <li key={bi} className="flex items-start gap-2 text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                                <span className="mt-[7px] w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                                <span className="break-words min-w-0"><HighlightText text={b} query="" /></span>
+                              </li>
+                            ))}
+                            {bullets.length > 3 && <li className="text-[11px] text-slate-500 dark:text-slate-400 pl-3">외 {bullets.length - 3}개</li>}
+                          </ul>
+                        )}
+                        {entry.overview && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 whitespace-pre-wrap break-words"><HighlightText text={entry.overview} query="" /></p>}
                         {entry.problem && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2"><span className="text-slate-500 dark:text-slate-400">문제 ·</span> <HighlightText text={entry.problem} query="" /></p>}
                         {entry.solution && <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 mt-0.5"><span className="text-slate-500 dark:text-slate-400">해결 ·</span> <HighlightText text={entry.solution} query="" /></p>}
+                        {entry.tags && entry.tags.length > 0 && (
+                          <div className="flex items-center flex-wrap gap-1.5 mt-2">
+                            {entry.tags.map(t => (
+                              <span key={t} className="inline-flex items-center gap-1 text-[11px] font-mono px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><TagIcon size={9} /> {t}</span>
+                            ))}
+                          </div>
+                        )}
                       </button>
                     </div>
                   );

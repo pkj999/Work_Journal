@@ -147,14 +147,14 @@ const tooSmall = (list, min = 40) => list.filter(b => b.w < min || b.h < min);
     assert.ok(trash.x + trash.width > 390 - 40, '오른쪽 끝에 붙어야 함');
   }, { viewport: { width: 390, height: 844 } });
 
-  await test('업무일지: [선택]은 목록 보기에서만(달력/프로젝트별에서는 없음), [휴지통]은 항상', async ({ page }) => {
+  await test('업무일지: [선택]은 목록 보기에서만(달력/모아보기에서는 없음), [휴지통]은 항상', async ({ page }) => {
     await gotoEntries(page);
     assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 1);
     await page.getByRole('button', { name: '달력' }).click();
     await page.waitForTimeout(300);
     assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 0);
     assert.ok(await page.getByRole('button', { name: /휴지통/ }).count() >= 1);
-    await page.getByRole('button', { name: '프로젝트별' }).click();
+    await page.getByRole('button', { name: '모아보기' }).click();
     await page.waitForTimeout(300);
     assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 0);
     await page.getByRole('button', { name: '목록' }).first().click();

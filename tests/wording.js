@@ -42,7 +42,7 @@ const attrText = page => page.evaluate(() => [...document.querySelectorAll('[ari
   const screens = [
     ['업무일지 목록', async p => { await gotoEntries(p); }],
     ['업무일지 달력', async p => { await gotoEntries(p); await p.getByRole('button', { name: '달력' }).click(); await p.waitForTimeout(300); }],
-    ['프로젝트별 타임라인', async p => { await gotoEntries(p); await p.getByRole('button', { name: '프로젝트별' }).click(); await p.waitForTimeout(300); await p.getByRole('button', { name: '프로젝트A', exact: true }).click(); await p.waitForTimeout(300); }],
+    ['모아보기 타임라인', async p => { await gotoEntries(p); await p.getByRole('button', { name: '모아보기' }).click(); await p.waitForTimeout(300); await p.getByRole('button', { name: /^프로젝트A/ }).click(); await p.waitForTimeout(300); }],
     ['하이라이트', async p => { await gotoEntries(p); await p.getByRole('button', { name: '하이라이트' }).click(); await p.waitForTimeout(300); }],
     ['일지 휴지통', async p => { await gotoEntries(p); await p.getByRole('button', { name: /휴지통/ }).first().click(); await p.waitForTimeout(300); }],
     ['빠른 기록', async p => { await gotoQuick(p); }],
