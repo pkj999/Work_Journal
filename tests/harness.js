@@ -11,6 +11,7 @@ const FILE_MAP = {
   '/vendor/react.js': path.join(NM, 'react/umd/react.production.min.js'),
   '/vendor/react-dom.js': path.join(NM, 'react-dom/umd/react-dom.production.min.js'),
   '/vendor/babel.js': path.join(NM, '@babel/standalone/babel.min.js'),
+  '/vendor/xlsx.js': path.join(NM, 'xlsx/dist/xlsx.full.min.js'),
   '/vendor/tailwind.js': path.join(NM, '@tailwindcss/browser/dist/index.global.js'),
 };
 
@@ -20,7 +21,7 @@ function transformHtml(html) {
     .replace(/https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/react\/18\.3\.1\/umd\/react\.production\.min\.js/, '/vendor/react.js')
     .replace(/https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/react-dom\/18\.3\.1\/umd\/react-dom\.production\.min\.js/, '/vendor/react-dom.js')
     .replace(/https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/babel-standalone\/7\.24\.7\/babel\.min\.js/, '/vendor/babel.js')
-    .replace(/<script src="https:\/\/cdn\.sheetjs\.com[^"]*"><\/script>/, '<script>window.XLSX={};</script>');
+    .replace(/<script src="https:\/\/cdn\.sheetjs\.com[^"]*"><\/script>/, '<script src="/vendor/xlsx.js"></script>');
 }
 
 function startServer(indexPath) {

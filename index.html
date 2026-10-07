@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.43 · 2026.10.07';
+const APP_VERSION = 'ver.44 · 2026.10.07';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -265,6 +265,7 @@ const PATH_QUICK_NOTES = 'data/quick-notes.json';
 const PATH_TODOS = 'data/todos.json';
 const PATH_PHRASES = 'data/phrases.json';
 const PATH_CATEGORIES = 'data/categories.json'; // 사용자가 직접 추가한 카테고리
+const PATH_PROJECTS = 'data/projects.json'; // 프로젝트(여러 날에 걸친 업무): { id, name, purpose, status, deadline, createdAt, updatedAt, deleted? }. 일지는 projectId로 연결(없으면 현장 기록)
 const PATH_MEMOS = 'data/memos.json'; // 할 일 탭 "기억할 것" 섹션 — 완료해도 안 사라지는 상시 메모
 const GH_API = 'https://api.github.com';
 
@@ -325,6 +326,42 @@ function fmtStamp(ts) {
 }
 // 태그 비교용 키: 대소문자·띄어쓰기를 무시한다("A제품" = "a제품" = "A 제품"). 화면에는 가장 많이 쓴 표기를 보여줌
 const tagKey = t => String(t == null ? '' : t).toLowerCase().replace(/\s+/g, '');
+/* ---------- 프로젝트 ---------- */
+const PROJECT_STATUSES = ['진행중', '보류', '완료'];
+const PROJECT_STATUS_STYLE = {
+  '진행중': 'text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/10',
+  '보류': 'text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/10',
+  '완료': 'text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800',
+};
+const ProjectsCtx = React.createContext({}); // id -> 프로젝트 (카드에 프로젝트 이름 표시용)
+// 마감일 표시: D-5 / 오늘 마감 / 3일 지남. 진행중일 때만 지남·임박을 경고색으로(완료·보류는 경고 안 함)
+function deadlineInfo(p) {
+  if (!p || !p.deadline) return null;
+  const d = daysUntil(p.deadline);
+  if (d == null || isNaN(d)) return null;
+  const active = p.status === '진행중';
+  const label = d < 0 ? `${-d}일 지남` : d === 0 ? '오늘 마감' : `D-${d}`;
+  const tone = active && d < 0 ? 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-500/10'
+    : active && d <= 3 ? 'text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/10'
+    : 'text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800';
+  return { label, tone, overdue: active && d < 0 };
+}
+// 프로젝트 목록 계산: 일지(휴지통 제외)에서 기록 수·마지막 기록 날짜를 모아 정렬(진행중 → 보류 → 완료, 같은 상태 안에서는 마감 빠른 순 → 최근 기록 순)
+function buildProjectList(projects, entries) {
+  const stat = new Map();
+  (entries || []).forEach(e => {
+    if (e.deleted || !e.projectId) return;
+    const m = stat.get(e.projectId) || { count: 0, last: '' };
+    m.count++; if ((e.date || '') > m.last) m.last = e.date || '';
+    stat.set(e.projectId, m);
+  });
+  const rank = s => { const i = PROJECT_STATUSES.indexOf(s); return i < 0 ? 0 : i; };
+  return (projects || []).filter(p => !p.deleted).map(p => ({ ...p, count: (stat.get(p.id) || {}).count || 0, last: (stat.get(p.id) || {}).last || '' }))
+    .sort((a, b) => rank(a.status) - rank(b.status)
+      || (a.deadline || '9999-99-99').localeCompare(b.deadline || '9999-99-99')
+      || (b.last || '').localeCompare(a.last || '')
+      || (b.createdAt || 0) - (a.createdAt || 0));
+}
 // 일지들에서 태그 목록 만들기: [{ key, label, count, last }] — 많이 쓴 순(같으면 이름순). 같은 키의 표기는 하나로 합치고 label은 가장 많이 쓴 표기
 function buildTagIndex(entries) {
   const map = new Map();
@@ -2875,6 +2912,8 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
   // 접힌 상태는 2줄까지만 보이므로, 글자 수가 길거나 줄바꿈이 3줄 이상이면 "더보기"가 필요
   const longText = t => !!t && (t.length > 90 || t.split('\n').length > 2);
   const hasMore = longText(entry.overview) || longText(entry.problem) || longText(entry.solution);
+  const projMap = React.useContext(ProjectsCtx);
+  const proj = entry.projectId ? projMap[entry.projectId] : null;
   const readonly = !!entry._readonly;
   const imgCfg = repoCfgFor(cfg, entry._repo);
   const handleFavClick = () => {
@@ -2907,6 +2946,7 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
               )}
             </div>
             <h3 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words"><HighlightText text={entry.title || '(제목 없음)'} query={query} /></h3>
+            {proj && <span data-testid="entry-project" className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800 max-w-full"><FolderKanban size={11} className="shrink-0" /><span className="truncate">{proj.name}</span></span>}
           </div>
           {/* 항상 보임(마우스 올릴 때만 보이기 금지 — 터치 화면에서 안 보이는 문제) */}
           <div className="wj-card-actions flex items-center shrink-0 -my-2 -mr-2">
@@ -3031,9 +3071,49 @@ function EntryPreviewModal({ open, entry, cfg, categoryMap, onClose, onEdit, onD
   );
 }
 
-const EMPTY_FORM = { date: todayStr(), title: '', category: '개발', importance: '중', bullets: [''], overview: '', problem: '', solution: '', lesson: '', tags: [], links: [], dataPath: '' };
+const EMPTY_FORM = { date: todayStr(), projectId: '', title: '', category: '개발', importance: '중', bullets: [''], overview: '', problem: '', solution: '', lesson: '', tags: [], links: [], dataPath: '' };
 
-function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, existingTags, recentTags, categories, onClose, onSave }) {
+// 일지를 프로젝트에 연결하는 선택칸. 비워두면 "현장 기록"(프로젝트 없는 기록). 목록에 없으면 여기서 바로 새 프로젝트를 만듦.
+function ProjectPicker({ value, projectList, onChange, onCreateProject }) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const current = projectList.find(x => x.id === value);
+  const submit = async () => {
+    if (busy || !name.trim()) return;
+    setBusy(true);
+    const pr = await onCreateProject(name);
+    setBusy(false);
+    if (pr) { onChange(pr); setCreating(false); setName(''); }
+  };
+  return (
+    <div>
+      <label htmlFor="entry-project" className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">프로젝트 <span className="font-normal">(선택 — 비우면 현장 기록)</span></label>
+      <select id="entry-project" value={creating ? '__new__' : (current ? current.id : '')}
+        onChange={e => {
+          const v = e.target.value;
+          if (v === '__new__') { setCreating(true); return; }
+          setCreating(false);
+          onChange(projectList.find(x => x.id === v) || null);
+        }}
+        className="w-full px-2.5 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
+        <option value="">프로젝트 없음 · 현장 기록</option>
+        {projectList.map(x => <option key={x.id} value={x.id}>{x.name}{x.status !== '진행중' ? ` (${x.status})` : ''}</option>)}
+        <option value="__new__">+ 새 프로젝트 만들기…</option>
+      </select>
+      {creating && (
+        <div className="flex gap-1.5 mt-1.5">
+          <input value={name} onChange={e => setName(e.target.value)} aria-label="새 프로젝트 이름" placeholder="프로젝트 이름"
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+            className="flex-1 min-w-0 px-2.5 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100" />
+          <TextAction onClick={submit} disabled={busy || !name.trim()} className="border border-slate-200 dark:border-slate-700 disabled:opacity-50">{busy ? '만드는 중…' : '만들기'}</TextAction>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existingProjects, projectList, onCreateProject, existingTags, recentTags, categories, onClose, onSave }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [keepImages, setKeepImages] = useState([]);
@@ -3068,7 +3148,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
     if (initial) {
       baseForm = {
         date: initial.date || todayStr(), title: initial.title || '', category: initial.category || '개발',
-        importance: initial.importance || '중', bullets: initial.bullets && initial.bullets.length > 0 ? [...initial.bullets] : [''],
+        projectId: initial.projectId || '', importance: initial.importance || '중', bullets: initial.bullets && initial.bullets.length > 0 ? [...initial.bullets] : [''],
         overview: initial.overview || '',
         problem: initial.problem || '', solution: initial.solution || '', lesson: initial.lesson || '',
         tags: initial.tags || [],
@@ -3084,7 +3164,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
       baseForm = { ...EMPTY_FORM, overview: (prefillNote.text || '').trim(), bullets: [''], links: [] };
       baseImages = prefillNote.imageRefs || [];
     } else {
-      baseForm = { ...EMPTY_FORM, bullets: [''], links: [] };
+      baseForm = { ...EMPTY_FORM, bullets: [''], links: [], ...(presetProject ? { projectId: presetProject.projectId, title: presetProject.title } : {}) };
       baseImages = [];
     }
     baselineRef.current = JSON.stringify({ form: baseForm, keepImages: baseImages });
@@ -3103,7 +3183,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
       setKeepImages(baseImages);
       setShowDetails(!!(baseForm.problem || baseForm.solution || baseForm.lesson));
     }
-  }, [open, initial, prefillNote]);
+  }, [open, initial, prefillNote, presetProject]);
 
   // 입력하는 동안 잠깐씩 멈추면(0.8초) 자동으로 임시저장 — 저장 버튼을 누르기 전에 창이 꺼져도 안전하도록
   useEffect(() => {
@@ -3152,7 +3232,7 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
     setSaving(true);
     try {
       const ok = await onSave({
-        date: form.date, title: form.title.trim(), category: form.category, importance: form.importance,
+        date: form.date, projectId: form.projectId || '', title: form.title.trim(), category: form.category, importance: form.importance,
         bullets: form.bullets.map(b => b.trim()).filter(Boolean),
         overview: form.overview.trim(),
         problem: form.problem.trim(), solution: form.solution.trim(), lesson: form.lesson.trim(),
@@ -3214,8 +3294,11 @@ function EntryFormModal({ open, initial, prefillNote, cfg, existingProjects, exi
             </div>
           </div>
 
+          <ProjectPicker value={form.projectId} projectList={projectList || []} onCreateProject={onCreateProject}
+            onChange={pr => setForm(f => ({ ...f, projectId: pr ? pr.id : '', title: pr && !f.title.trim() ? pr.name : f.title }))} />
+
           <div>
-            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">프로젝트 / 업무명</label>
+            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">업무명</label>
             <ComboBoxInput value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))}
               suggestions={existingProjects || []}
               placeholder="예: ○○ 설비 트러블슈팅 대응" />
@@ -3522,7 +3605,81 @@ function DayDetailSheet({ open, dateKey, cfg, categoryMap, dayEntries, dayNotes,
   );
 }
 
-function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, onEdit, onDelete, onToggleFavorite, onBulkDelete, onBulkFavorite, onBulkField, onRestore, onPermanentDelete, onViewSource, onPreviewEntry, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
+/* ---------- 프로젝트 카드 / 상세 (업무일지 탭 > 모아보기) ---------- */
+function ProjectCard({ project, selected, onSelect }) {
+  const dl = deadlineInfo(project);
+  return (
+    <button type="button" onClick={onSelect} aria-pressed={!!selected} data-testid="project-card"
+      className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors active:scale-[0.99] ${selected
+        ? 'border-slate-900 dark:border-slate-200 bg-white dark:bg-slate-900'
+        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-600'}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words min-w-0">{project.name}</span>
+        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-md ${PROJECT_STATUS_STYLE[project.status] || PROJECT_STATUS_STYLE['진행중']}`}>{project.status}</span>
+        {dl && <span data-testid="project-deadline" className={`text-[11px] font-medium px-1.5 py-0.5 rounded-md ${dl.tone}`}>{dl.label}</span>}
+      </div>
+      {project.purpose && <p className="text-[12px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed line-clamp-1 break-words">{project.purpose}</p>}
+      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+        기록 {project.count}건{project.last ? ` · 마지막 ${fmtDateShort(project.last)}` : ' · 아직 기록 없음'}
+      </div>
+    </button>
+  );
+}
+
+// 고른 프로젝트의 정보 편집 패널. 이름·목적은 입력칸을 벗어날 때 저장하고, 상태·마감은 누르는 즉시 저장.
+function ProjectDetail({ project, otherNames, onUpdate, onDelete, onWrite }) {
+  const [name, setName] = useState(project.name);
+  const [purpose, setPurpose] = useState(project.purpose || '');
+  const [nameErr, setNameErr] = useState('');
+  useEffect(() => { setName(project.name); setPurpose(project.purpose || ''); setNameErr(''); }, [project.id, project.name, project.purpose]);
+  const commitName = () => {
+    const nm = name.trim();
+    if (nm === project.name) { setName(project.name); setNameErr(''); return; }
+    if (!nm) { setName(project.name); setNameErr('이름은 비울 수 없어요.'); return; }
+    if (otherNames.includes(nm)) { setName(project.name); setNameErr('같은 이름의 프로젝트가 이미 있어요.'); return; }
+    setNameErr(''); onUpdate(project.id, { name: nm });
+  };
+  const commitPurpose = () => { if (purpose.trim() !== (project.purpose || '')) onUpdate(project.id, { purpose: purpose.trim() }); };
+  const inputCls = 'w-full px-2.5 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100';
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-3 space-y-3" data-testid="project-detail">
+      <div>
+        <label htmlFor="pd-name" className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">프로젝트 이름</label>
+        <input id="pd-name" value={name} onChange={e => setName(e.target.value)} onBlur={commitName} className={inputCls} />
+        {nameErr && <p className="text-[11px] text-red-700 dark:text-red-300 mt-1" role="alert">{nameErr}</p>}
+      </div>
+      <div>
+        <label htmlFor="pd-purpose" className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">목적 <span className="font-normal">(뭘 위해 하는 일인지)</span></label>
+        <textarea id="pd-purpose" rows={2} value={purpose} onChange={e => setPurpose(e.target.value)} onBlur={commitPurpose} placeholder="예: A제품 수율을 95% 이상으로 올리기" className={`${inputCls} resize-none`} />
+      </div>
+      <div className="flex items-end gap-x-4 gap-y-3 flex-wrap">
+        <div>
+          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">상태</div>
+          <div className="flex gap-1.5" role="group" aria-label="상태">
+            {PROJECT_STATUSES.map(st => (
+              <FilterChip key={st} selected={project.status === st} onClick={() => { if (project.status !== st) onUpdate(project.id, { status: st }); }}>{st}</FilterChip>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label htmlFor="pd-deadline" className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">마감일 <span className="font-normal">(없어도 돼요)</span></label>
+          <div className="flex items-center gap-1">
+            <input id="pd-deadline" type="date" value={project.deadline || ''} onChange={e => onUpdate(project.id, { deadline: e.target.value || null })}
+              className="px-2.5 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 min-h-10" />
+            {project.deadline && <TextAction icon={X} onClick={() => onUpdate(project.id, { deadline: null })}>마감 지우기</TextAction>}
+          </div>
+          {project.deadline && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{fmtDateShort(project.deadline)}</div>}
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-slate-100 dark:border-slate-800">
+        {onWrite ? <TextAction icon={Plus} onClick={onWrite} className="border border-slate-200 dark:border-slate-700">이 프로젝트에 기록 쓰기</TextAction> : <span />}
+        <TextAction icon={Trash2} onClick={() => onDelete(project)} className="!text-red-700 dark:!text-red-300">프로젝트 삭제</TextAction>
+      </div>
+    </div>
+  );
+}
+
+function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, onEdit, onDelete, onToggleFavorite, onBulkDelete, onBulkFavorite, onBulkField, onRestore, onPermanentDelete, onViewSource, onPreviewEntry, hasArchives, archivesLoaded, archiveLoading, onLoadArchives, projectRecords, onCreateProject, onUpdateProject, onDeleteProject, onWriteForProject, onPromoteTitle }) {
   const [query, setQuery] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -3536,7 +3693,13 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
   const [view, setView] = useState('list'); // 'list' | 'calendar' | 'project' | 'highlights'
   const [calDate, setCalDate] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [selectedDay, setSelectedDay] = useState(null); // 'YYYY-MM-DD' | null — 바텀시트에 표시 중인 날짜
-  const [timelineProject, setTimelineProject] = useState(null);
+  const [timelineProject, setTimelineProject] = useState(null); // 프로젝트에 연결 안 된 옛 기록을 업무명으로 모을 때 고른 업무명
+  const [selProjectId, setSelProjectId] = useState(null); // 모아보기에서 고른 프로젝트(id)
+  const [showDoneProjects, setShowDoneProjects] = useState(false);
+  const [showLegacy, setShowLegacy] = useState(false);
+  const [newProjOpen, setNewProjOpen] = useState(false);
+  const [newProjName, setNewProjName] = useState('');
+  const [newProjBusy, setNewProjBusy] = useState(false);
   const [timelineTags, setTimelineTags] = useState([]); // 모아보기에서 고른 태그 키들(여러 개면 모두 달린 일지만)
   const [showAllTags, setShowAllTags] = useState(false);
   const [yearToggles, setYearToggles] = useState({}); // 프로젝트별 보기에서 연도 그룹을 펼쳤는지 여부 (직접 클릭해서 바꾼 것만 기록)
@@ -3567,36 +3730,54 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
   });
   const handlePreviewFromSheet = entry => { setSelectedDay(null); onPreviewEntry(entry); };
 
+  const projectList = useMemo(() => buildProjectList(projectRecords, activeEntries), [projectRecords, activeEntries]);
+  const projectById = useMemo(() => { const m = {}; projectList.forEach(x => { m[x.id] = x; }); return m; }, [projectList]);
+  // 프로젝트에 연결되지 않은 일지(= 현장 기록 + 아직 정리 안 된 옛 기록). 연결된 프로젝트가 삭제됐으면 여기로 돌아옴
+  const looseEntries = useMemo(() => activeEntries.filter(e => !e.projectId || !projectById[e.projectId]), [activeEntries, projectById]);
   const projects = useMemo(() => [...new Set(activeEntries.map(e => e.title).filter(Boolean))].sort(), [activeEntries]);
   const tagIndex = useMemo(() => buildTagIndex(activeEntries), [activeEntries]);
   const allTags = useMemo(() => tagIndex.map(t => t.label).sort((a, b) => a.localeCompare(b)), [tagIndex]); // 목록 보기의 "전체 태그" 필터용(표기만 다른 태그는 하나로)
-  const projectCounts = useMemo(() => { const m = new Map(); activeEntries.forEach(e => { if (e.title) m.set(e.title, (m.get(e.title) || 0) + 1); }); return m; }, [activeEntries]);
+  const projectCounts = useMemo(() => { const m = new Map(); looseEntries.forEach(e => { if (e.title) m.set(e.title, (m.get(e.title) || 0) + 1); }); return m; }, [looseEntries]);
   // "프로젝트별" 보기용 — 최근에 손댄 프로젝트가 먼저 오도록
   const projectsByRecency = useMemo(() => {
     const map = new Map();
-    activeEntries.forEach(e => {
+    looseEntries.forEach(e => {
       if (!e.title) return;
       if (!map.has(e.title) || (e.date || '') > map.get(e.title)) map.set(e.title, e.date || '');
     });
     return [...map.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([t]) => t);
-  }, [activeEntries]);
+  }, [looseEntries]);
   // 고른 프로젝트·태그가 삭제·이름 변경 등으로 사라지면 선택에서 뺌(안 보이는 조건이 남아 결과가 비어 보이는 것 방지)
   useEffect(() => {
     if (timelineProject && !projectsByRecency.includes(timelineProject)) setTimelineProject(null);
+    if (selProjectId && !projectById[selProjectId]) setSelProjectId(null);
     const keys = new Set(tagIndex.map(t => t.key));
     setTimelineTags(prev => (prev.every(k => keys.has(k)) ? prev : prev.filter(k => keys.has(k))));
-  }, [projectsByRecency, tagIndex]);
-  const hasTimelineFilter = !!timelineProject || timelineTags.length > 0;
+  }, [projectsByRecency, tagIndex, projectById]);
+  const hasTimelineFilter = !!timelineProject || !!selProjectId || timelineTags.length > 0;
   // 모아보기 결과: 프로젝트(고른 경우)와 고른 태그가 "모두" 맞는 일지를 날짜순(오래된 것 위)으로 — 아무것도 안 골랐으면 비어 있음
   const timelineEntries = useMemo(() => {
     if (!hasTimelineFilter) return [];
     return activeEntries
-      .filter(e => (!timelineProject || e.title === timelineProject))
+      .filter(e => (!selProjectId || e.projectId === selProjectId))
+      .filter(e => (!timelineProject || (e.title === timelineProject && (!e.projectId || !projectById[e.projectId]))))
       .filter(e => { const ks = new Set((e.tags || []).map(tagKey)); return timelineTags.every(k => ks.has(k)); })
       .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || 0) - (b.createdAt || 0));
-  }, [activeEntries, timelineProject, timelineTags, hasTimelineFilter]);
+  }, [activeEntries, timelineProject, selProjectId, projectById, timelineTags, hasTimelineFilter]);
   const toggleTimelineTag = key => setTimelineTags(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
-  const clearTimelineFilter = () => { setTimelineProject(null); setTimelineTags([]); };
+  const clearTimelineFilter = () => { setTimelineProject(null); setSelProjectId(null); setTimelineTags([]); };
+  const pickProject = id => { setTimelineProject(null); setSelProjectId(cur => (cur === id ? null : id)); };
+  const pickLegacy = title => { setSelProjectId(null); setTimelineProject(cur => (cur === title ? null : title)); };
+  const submitNewProject = async () => {
+    if (newProjBusy || !newProjName.trim()) return;
+    setNewProjBusy(true);
+    const pr = await onCreateProject(newProjName);
+    setNewProjBusy(false);
+    if (pr) { setNewProjName(''); setNewProjOpen(false); setTimelineProject(null); setSelProjectId(pr.id); }
+  };
+  const activeProjects = projectList.filter(x => x.status !== '완료');
+  const doneProjects = projectList.filter(x => x.status === '완료');
+  const selProject = selProjectId ? projectById[selProjectId] : null;
   // 태그가 많을 땐 많이 쓴 순으로 먼저 일부만 보이고 "더 보기"로 펼침. 고른 태그는 접혀 있어도 항상 보이게 포함
   const TAG_PREVIEW = 16;
   const shownTags = useMemo(() => {
@@ -3609,7 +3790,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
   // "프로젝트별" 보기 — 프로젝트가 많아질 걸 대비해 연도별로 묶어서, 최근 연도만 기본으로 펼쳐둠
   const projectsByYear = useMemo(() => {
     const map = new Map();
-    activeEntries.forEach(e => {
+    looseEntries.forEach(e => {
       if (!e.title) return;
       if (!map.has(e.title) || (e.date || '') > map.get(e.title)) map.set(e.title, e.date || '');
     });
@@ -3622,7 +3803,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
       byYear.get(year).projects.push(title);
     });
     return groups;
-  }, [activeEntries]);
+  }, [looseEntries]);
   const isYearOpen = (year, idx) => (yearToggles[year] !== undefined ? yearToggles[year] : idx === 0);
   const toggleYear = (year, idx) => setYearToggles(prev => ({ ...prev, [year]: !isYearOpen(year, idx) }));
 
@@ -3804,36 +3985,92 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
         </React.Fragment>
       ) : view === 'project' ? (
         <React.Fragment>
-          {activeEntries.length === 0 ? (
+          {activeEntries.length === 0 && projectList.length === 0 ? (
             <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-[13px]">아직 모아볼 일지가 없어요.</div>
           ) : (
             <React.Fragment>
               {/* 모아보기: 프로젝트(업무명)나 태그를 고르면 날짜와 상관없이 그 기록만 날짜순으로 모아서 보여줌 */}
               <div className="space-y-3.5">
                 <div>
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1"><FolderKanban size={11} /> 프로젝트 <span className="font-normal">(업무명)</span></div>
-                  <div className="space-y-2.5" role="group" aria-label="프로젝트">
-                    {projectsByYear.map((g, idx) => {
-                      const open = isYearOpen(g.year, idx);
-                      return (
-                        <div key={g.year}>
-                          <TextAction onClick={() => toggleYear(g.year, idx)} className="-ml-2 font-semibold">
-                            <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
-                            {g.year === '날짜 없음' ? g.year : `${g.year}년`}
-                            <span className="font-normal">· {g.projects.length}개</span>
-                          </TextAction>
-                          {open && (
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {g.projects.map(pr => (
-                                <FilterChip key={pr} selected={timelineProject === pr} count={projectCounts.get(pr)} onClick={() => setTimelineProject(timelineProject === pr ? null : pr)}>{pr}</FilterChip>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1"><FolderKanban size={11} /> 프로젝트 <span className="font-normal">(여러 날에 걸친 업무)</span></div>
+                    <TextAction icon={Plus} onClick={() => setNewProjOpen(v => !v)} className="-my-2 -mr-2">새 프로젝트</TextAction>
                   </div>
+                  {newProjOpen && (
+                    <div className="flex gap-1.5 mb-2">
+                      <input value={newProjName} onChange={e => setNewProjName(e.target.value)} aria-label="새 프로젝트 이름" placeholder="프로젝트 이름 (예: A제품 생산)"
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitNewProject(); } }}
+                        className="flex-1 min-w-0 px-2.5 py-2 rounded-lg text-[13px] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100" />
+                      <TextAction onClick={submitNewProject} disabled={newProjBusy || !newProjName.trim()} className="border border-slate-200 dark:border-slate-700 disabled:opacity-50">{newProjBusy ? '만드는 중…' : '만들기'}</TextAction>
+                    </div>
+                  )}
+                  {projectList.length === 0 ? (
+                    <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">아직 프로젝트가 없어요. 여러 날에 걸쳐 이어지는 업무는 [새 프로젝트]로 만들면 진행 상태와 마감일을 같이 볼 수 있어요. 그냥 보고 들은 것은 프로젝트 없이 현장 기록으로 남기면 돼요.</p>
+                  ) : (
+                    <div className="space-y-2" role="group" aria-label="프로젝트 목록">
+                      {activeProjects.map(pr => <ProjectCard key={pr.id} project={pr} selected={selProjectId === pr.id} onSelect={() => pickProject(pr.id)} />)}
+                      {doneProjects.length > 0 && (
+                        <React.Fragment>
+                          <TextAction onClick={() => setShowDoneProjects(v => !v)} className="-ml-2 font-semibold">
+                            <ChevronDown size={12} className={showDoneProjects || (selProject && selProject.status === '완료') ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                            완료한 프로젝트 <span className="font-normal">· {doneProjects.length}개</span>
+                          </TextAction>
+                          {(showDoneProjects || (selProject && selProject.status === '완료')) && doneProjects.map(pr => <ProjectCard key={pr.id} project={pr} selected={selProjectId === pr.id} onSelect={() => pickProject(pr.id)} />)}
+                        </React.Fragment>
+                      )}
+                    </div>
+                  )}
+                  {selProject && (
+                    <div className="mt-2">
+                      <ProjectDetail key={selProject.id} project={selProject} otherNames={projectList.filter(x => x.id !== selProject.id).map(x => x.name)}
+                        onUpdate={onUpdateProject} onDelete={onDeleteProject} onWrite={onWriteForProject ? () => onWriteForProject(selProject) : null} />
+                    </div>
+                  )}
                 </div>
+
+                {projectsByYear.length > 0 && (
+                  <div>
+                    {projectList.length > 0 ? (
+                      <TextAction onClick={() => setShowLegacy(v => !v)} className="-ml-2 font-semibold">
+                        <ChevronDown size={12} className={showLegacy || timelineProject ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                        프로젝트에 연결 안 된 기록 <span className="font-normal">(업무명으로 모으기)</span>
+                      </TextAction>
+                    ) : (
+                      <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1"><FolderKanban size={11} /> 업무명으로 모으기</div>
+                    )}
+                    {timelineProject && onPromoteTitle && (
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1.5">
+                        <span className="text-[12px] text-slate-600 dark:text-slate-300 flex-1 min-w-0">여러 날에 걸친 업무라면 프로젝트로 묶어서 상태·마감일을 관리할 수 있어요.</span>
+                        <TextAction icon={FolderKanban} className="border border-slate-200 dark:border-slate-700" onClick={async () => { const pr = await onPromoteTitle(timelineProject); if (pr) { setTimelineProject(null); setSelProjectId(pr.id); } }}>
+                          "{timelineProject}" 프로젝트로 만들기
+                        </TextAction>
+                      </div>
+                    )}
+                    {(projectList.length === 0 || showLegacy || timelineProject) && (
+                      <div className="space-y-2.5" role="group" aria-label="업무명">
+                        {projectsByYear.map((g, idx) => {
+                          const open = isYearOpen(g.year, idx);
+                          return (
+                            <div key={g.year}>
+                              <TextAction onClick={() => toggleYear(g.year, idx)} className="-ml-2 font-semibold">
+                                <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                                {g.year === '날짜 없음' ? g.year : `${g.year}년`}
+                                <span className="font-normal">· {g.projects.length}개</span>
+                              </TextAction>
+                              {open && (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {g.projects.map(pr => (
+                                    <FilterChip key={pr} selected={timelineProject === pr} count={projectCounts.get(pr)} onClick={() => pickLegacy(pr)}>{pr}</FilterChip>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {tagIndex.length > 0 && (
                   <div>
@@ -3884,7 +4121,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                           {entry._readonly && <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">보관 레포</span>}
                         </div>
                         {/* 프로젝트를 안 골랐으면 일지마다 업무명이 다를 수 있어서 제목도 보여줌 */}
-                        {!timelineProject && <div className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words mb-1"><HighlightText text={entry.title || '(제목 없음)'} query="" /></div>}
+                        {!(timelineProject || (selProject && entry.title === selProject.name)) && <div className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words mb-1"><HighlightText text={entry.title || '(제목 없음)'} query="" /></div>}
                         {bullets.length > 0 && (
                           <ul className="space-y-0.5 mb-1">
                             {bullets.slice(0, 3).map((b, bi) => (
@@ -4104,12 +4341,15 @@ function App() {
   const [customCategoriesSha, setCustomCategoriesSha] = useState(null);
   const [memos, setMemos] = useState([]);
   const [memosSha, setMemosSha] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [projectsSha, setProjectsSha] = useState(null);
 
   // entries.json/quick-notes.json/todos.json/memos.json에 대한 쓰기 요청을 한 번에 하나씩만 실행되도록 줄 세우는 큐
   const entriesQueueRef = useRef(createSerialQueue());
   const quickNotesQueueRef = useRef(createSerialQueue());
   const todosQueueRef = useRef(createSerialQueue());
   const memosQueueRef = useRef(createSerialQueue());
+  const projectsQueueRef = useRef(createSerialQueue());
 
   // 동기화 상태
   const [loading, setLoading] = useState(false);
@@ -4132,6 +4372,7 @@ function App() {
   const [pendingDeleteMemoIds, setPendingDeleteMemoIds] = useState(() => new Set()); // 기억할 것도 같은 방식
   const pendingDeleteTimersRef = useRef({}); // id -> timeoutId
   const [editingEntry, setEditingEntry] = useState(null);
+  const [presetProject, setPresetProject] = useState(null); // 프로젝트 상세의 [이 프로젝트에 기록 쓰기]로 열었을 때만 값이 있음
   const [prefillNote, setPrefillNote] = useState(null); // 빠른 기록에서 "일지로 정리하기"로 열었을 때만 값이 있음
   const [editingNote, setEditingNote] = useState(null); // 빠른 기록 수정 모달 — 업무일지 카드에서 "원본 보기"로도 열 수 있어서 App에서 관리
   const [previewEntryId, setPreviewEntryId] = useState(null); // 업무일지 "확인 먼저" 팝업 — 달력 클릭, 빠른기록의 "일지 보기"에서 사용
@@ -4165,7 +4406,7 @@ function App() {
     setLoading(true); setSyncError('');
     const cacheKey = `workjournal.cache.v1.${cfg.owner}/${cfg.repo}`;
     try {
-      const [e, q, t, p, cat, m] = await Promise.all([ghGetJSON(cfg, PATH_ENTRIES), ghGetJSON(cfg, PATH_QUICK_NOTES), ghGetJSON(cfg, PATH_TODOS), ghGetJSON(cfg, PATH_PHRASES), ghGetJSON(cfg, PATH_CATEGORIES), ghGetJSON(cfg, PATH_MEMOS)]);
+      const [e, q, t, p, cat, m, pr] = await Promise.all([ghGetJSON(cfg, PATH_ENTRIES), ghGetJSON(cfg, PATH_QUICK_NOTES), ghGetJSON(cfg, PATH_TODOS), ghGetJSON(cfg, PATH_PHRASES), ghGetJSON(cfg, PATH_CATEGORIES), ghGetJSON(cfg, PATH_MEMOS), ghGetJSON(cfg, PATH_PROJECTS)]);
       const activeTag = { owner: cfg.owner, repo: cfg.repo, branch: cfg.branch || 'main' };
       // 방금 저장에 성공했는데 GitHub 쪽에서 아직 안 보여주는 항목이 있으면 여기서 다시 붙여줌
       const reconciledEntries = reconcilePending(cfg, 'entries', e.data);
@@ -4177,12 +4418,13 @@ function App() {
       setPhrases(p.data); setPhrasesSha(p.sha);
       setCustomCategories(cat.data); setCustomCategoriesSha(cat.sha);
       setMemos(m.data); setMemosSha(m.sha);
+      setProjects(pr.data); setProjectsSha(pr.sha);
       setLastSynced(Date.now());
       setOffline(false); setOfflineCachedAt(null);
       setTokenExpiresAt(parseGhTokenExpiration(ghTokenExpirationRaw));
       // 다음에 오프라인일 때 보여줄 수 있게, 성공한 결과를 이 기기에 그대로 캐시해둠
       try {
-        localStorage.setItem(cacheKey, JSON.stringify({ entries: e.data, quickNotes: q.data, todos: t.data, phrases: p.data, categories: cat.data, memos: m.data, cachedAt: Date.now() }));
+        localStorage.setItem(cacheKey, JSON.stringify({ entries: e.data, quickNotes: q.data, todos: t.data, phrases: p.data, categories: cat.data, memos: m.data, projects: pr.data, cachedAt: Date.now() }));
       } catch (_) { /* 저장 공간 부족 등은 무시 — 캐시는 있으면 좋은 것일 뿐 */ }
     } catch (err) {
       // 네트워크 문제로 보이면, 이 기기에 마지막으로 저장해둔 내용이라도 보여줌 (읽기 전용은 아니지만 새로 쓰기는 어차피 네트워크가 있어야 됨)
@@ -4198,6 +4440,7 @@ function App() {
           setPhrases(cached.phrases || []);
           setCustomCategories(cached.categories || []);
           setMemos(cached.memos || []);
+          setProjects(cached.projects || []);
           setOffline(true);
           setOfflineCachedAt(cached.cachedAt || null);
           usedCache = true;
@@ -4338,6 +4581,7 @@ function App() {
       quickNotes: quickNotes.map(stripMeta),
       todos,
       phrases,
+      projects,
       archives: archiveResults,
     };
   };
@@ -4381,7 +4625,7 @@ function App() {
       const entryRows = [];
       const pushEntryRows = (arr, repoLabel) => {
         arr.forEach(e => entryRows.push({
-          날짜: e.date || '', 프로젝트: e.title || '', 카테고리: e.category || '', 중요도: e.importance || '',
+          날짜: e.date || '', 프로젝트: (projectMap[e.projectId] || {}).name || '', 업무명: e.title || '', 카테고리: e.category || '', 중요도: e.importance || '',
           개요: e.overview || '', 발생문제: e.problem || '', 해결과정: e.solution || '', 배운점: e.lesson || '',
           주요성과: (e.bullets || []).filter(Boolean).join(' / '), 태그: (e.tags || []).join(', '),
           즐겨찾기: e.favorite ? 'Y' : '', 휴지통: e.deleted ? 'Y' : '', 저장소: repoLabel,
@@ -4390,6 +4634,12 @@ function App() {
       pushEntryRows(data.entries, '');
       data.archives.forEach(a => pushEntryRows(a.entries, repoLabelOf(a.repo)));
       entryRows.sort((a, b) => (b.날짜 || '').localeCompare(a.날짜 || ''));
+
+      // 프로젝트 시트
+      const projectRows = (data.projects || []).filter(x => !x.deleted).map(x => ({
+        프로젝트: x.name || '', 상태: x.status || '', 마감일: x.deadline || '', 목적: x.purpose || '',
+        기록수: data.entries.filter(e => e.projectId === x.id && !e.deleted).length,
+      }));
 
       // 빠른 기록 시트
       const noteRows = [];
@@ -4417,7 +4667,8 @@ function App() {
         if (widths) ws['!cols'] = widths.map(w => ({ wch: w }));
         XLSX.utils.book_append_sheet(wb, ws, name);
       };
-      addSheet(entryRows, '업무일지', [11, 24, 10, 6, 30, 30, 24, 30, 16, 6, 14]);
+      addSheet(entryRows, '업무일지', [11, 22, 24, 10, 6, 30, 30, 24, 30, 16, 6, 14]);
+      addSheet(projectRows, '프로젝트', [24, 8, 11, 36, 8]);
       addSheet(noteRows, '빠른기록', [11, 8, 40, 6, 6, 14]);
       addSheet(todoRows, '할일', [6, 30, 11]);
 
@@ -4454,7 +4705,10 @@ function App() {
       const newEntries = [];
       readSheet('업무일지').forEach(row => {
         if (S(row['저장소'])) return; // 보관 저장소에서 나온 행은 건너뜀
-        const date = S(row['날짜']), title = S(row['프로젝트']);
+        // 예전 파일은 '프로젝트' 칸이 업무명이었음. 새 파일은 '업무명' 칸이 따로 있고 '프로젝트' 칸은 프로젝트 이름.
+        const hasWorkName = Object.prototype.hasOwnProperty.call(row, '업무명');
+        const date = S(row['날짜']), title = S(hasWorkName ? row['업무명'] : row['프로젝트']);
+        const linked = hasWorkName ? projects.find(x => !x.deleted && x.name === S(row['프로젝트'])) : null; // 이미 있는 프로젝트와 이름이 같을 때만 연결
         if (!date || !title) return; // 필수값 없는 행은 건너뜀
         const problem = S(row['발생문제']), solution = S(row['해결과정']);
         const fp = `${date}|${title}|${problem}|${solution}`;
@@ -4464,7 +4718,7 @@ function App() {
         const importance = S(row['중요도']);
         const now = Date.now();
         newEntries.push({
-          id: uid(), date, title,
+          id: uid(), date, title, projectId: linked ? linked.id : '',
           category: allCategories.some(c => c.id === category) ? category : '기타',
           importance: IMPORTANCE_LEVELS.some(l => l.id === importance) ? importance : '중',
           problem, solution, lesson: S(row['배운점']),
@@ -4550,7 +4804,7 @@ function App() {
     try {
       let data;
       try { data = JSON.parse(await file.text()); } catch (e) { throw new Error('JSON 파일을 읽지 못했어요. 이 앱에서 내보낸 백업 파일이 맞는지 확인해주세요.'); }
-      if (!data || typeof data !== 'object' || !(Array.isArray(data.entries) || Array.isArray(data.quickNotes) || Array.isArray(data.todos))) {
+      if (!data || typeof data !== 'object' || !(Array.isArray(data.entries) || Array.isArray(data.quickNotes) || Array.isArray(data.todos) || Array.isArray(data.projects))) {
         throw new Error('이 앱에서 내보낸 백업 파일 형식이 아니에요.');
       }
 
@@ -4560,6 +4814,21 @@ function App() {
         existingIds.add(id);
         return id;
       };
+
+      // 프로젝트 — 같은 이름이 이미 있으면 새로 만들지 않고 그 프로젝트에 연결(가져온 일지의 projectId도 거기로 바꿔줌)
+      const existingProjectIds = new Set(projects.map(x => x.id));
+      const projectIdMap = {};
+      const newProjects = [];
+      (data.projects || []).forEach(pr => {
+        if (!pr || !pr.id || !pr.name || pr.deleted) return;
+        const same = projects.find(x => !x.deleted && x.name === pr.name) || newProjects.find(x => x.name === pr.name);
+        if (same) { projectIdMap[pr.id] = same.id; return; }
+        const id = reuseId(pr.id, existingProjectIds);
+        projectIdMap[pr.id] = id;
+        newProjects.push({ ...pr, id, status: PROJECT_STATUSES.includes(pr.status) ? pr.status : '진행중' });
+      });
+      const liveProjectIds = new Set([...projects.filter(x => !x.deleted).map(x => x.id), ...newProjects.map(x => x.id)]);
+      const remapProjectId = pid => (pid && projectIdMap[pid]) || (pid && liveProjectIds.has(pid) ? pid : '');
 
       // 일지 — 보관 저장소 몫(data.archives)은 다른 저장소 것이라 건너뛰고, 활성 저장소 몫만 가져옴
       const existingEntryFp = new Set(entries.map(e => `${e.date}|${e.title}|${e.problem || ''}|${e.solution || ''}`));
@@ -4573,6 +4842,7 @@ function App() {
         newEntries.push({
           ...e,
           id: reuseId(e.id, existingEntryIds),
+          projectId: remapProjectId(e.projectId),
           category: allCategories.some(c => c.id === e.category) ? e.category : '기타',
           importance: IMPORTANCE_LEVELS.some(l => l.id === e.importance) ? e.importance : '중',
           _repo: activeTag, _readonly: false,
@@ -4603,13 +4873,17 @@ function App() {
         newTodos.push({ ...t, id: reuseId(t.id, existingTodoIds) });
       });
 
-      const total = newEntries.length + newNotes.length + newTodos.length;
+      const total = newEntries.length + newNotes.length + newTodos.length + newProjects.length;
       if (total === 0) {
         showToast('새로 추가할 항목이 없어요 (이미 다 있는 내용이에요).');
         return;
       }
-      if (!window.confirm(`업무일지 ${newEntries.length}건, 빠른 기록 ${newNotes.length}건, 할 일 ${newTodos.length}건을 새로 추가할까요?\n기존 기록은 전혀 바뀌지 않아요.`)) return;
+      if (!window.confirm(`프로젝트 ${newProjects.length}개, 업무일지 ${newEntries.length}건, 빠른 기록 ${newNotes.length}건, 할 일 ${newTodos.length}건을 새로 추가할까요?\n기존 기록은 전혀 바뀌지 않아요.`)) return;
 
+      if (newProjects.length) {
+        const merged = await writeProjects(current => [...newProjects, ...current], 'JSON 백업에서 프로젝트 가져오기');
+        setProjects(merged);
+      }
       if (newEntries.length) {
         const merged = await writeActiveEntries(current => [...newEntries, ...current], 'JSON 백업에서 일지 가져오기');
         newEntries.forEach(e => markPending(cfg, 'entries', e));
@@ -4624,7 +4898,7 @@ function App() {
         const merged = await writeTodos(current => [...newTodos, ...current], 'JSON 백업에서 할 일 가져오기');
         setTodos(merged);
       }
-      showToast(`가져왔어요 (일지 ${newEntries.length}건 · 빠른 기록 ${newNotes.length}건 · 할 일 ${newTodos.length}건).`);
+      showToast(`가져왔어요 (프로젝트 ${newProjects.length}개 · 일지 ${newEntries.length}건 · 빠른 기록 ${newNotes.length}건 · 할 일 ${newTodos.length}건).`);
     } catch (err) {
       showToast('가져오기 실패: ' + err.message);
     } finally {
@@ -5257,13 +5531,111 @@ function App() {
     });
   };
 
+  /* ---------- 12-2. 프로젝트 핸들러 ---------- */
+  // 프로젝트는 data/projects.json 한 파일. 일지는 projectId로 연결만 하므로 프로젝트를 고쳐도 일지 파일은 안 건드림.
+  const writeProjects = (transformFn, message) => projectsQueueRef.current(async () => {
+    const attempt = async (base, sha) => {
+      const merged = transformFn(base);
+      const newSha = await ghPutJSON(cfg, PATH_PROJECTS, merged, sha, message);
+      return { merged, newSha };
+    };
+    try {
+      const { merged, newSha } = await attempt(projects, projectsSha);
+      setProjectsSha(newSha);
+      return merged;
+    } catch (err) {
+      if (err.status !== 409) throw err;
+      const fresh = await ghGetJSON(cfg, PATH_PROJECTS);
+      const { merged, newSha } = await attempt(fresh.data, fresh.sha);
+      setProjectsSha(newSha);
+      return merged;
+    }
+  });
+  // 새 프로젝트 만들기. 같은 이름이 이미 있으면 새로 만들지 않고 그걸 돌려줌(연타·중복 방지). 실패하면 null.
+  const handleCreateProject = async (name, extra) => {
+    const nm = (name || '').trim();
+    if (!nm) return null;
+    const same = projects.find(x => !x.deleted && x.name === nm);
+    if (same) return same;
+    const now = Date.now();
+    const created = { id: uid(), name: nm, purpose: '', status: '진행중', deadline: null, createdAt: now, updatedAt: now, ...(extra || {}) };
+    try {
+      let result = created;
+      const merged = await writeProjects(current => {
+        const dup = current.find(x => !x.deleted && x.name === nm);
+        if (dup) { result = dup; return current; } // 다른 기기에서 같은 이름을 방금 만들었으면 그걸 씀
+        result = created; return [created, ...current];
+      }, '프로젝트 추가');
+      setProjects(merged);
+      return result;
+    } catch (err) {
+      showToast('프로젝트 저장 실패: ' + err.message, () => handleCreateProject(name, extra));
+      return null;
+    }
+  };
+  const handleUpdateProject = async (id, changes) => {
+    try {
+      const merged = await writeProjects(current => current.map(x => x.id === id ? { ...x, ...changes, updatedAt: Date.now() } : x), '프로젝트 수정');
+      setProjects(merged);
+      return true;
+    } catch (err) {
+      showToast('저장 실패: ' + err.message, () => handleUpdateProject(id, changes));
+      return false;
+    }
+  };
+  // 삭제는 휴지통 방식(deleted 표시)이라 [실행취소]로 그대로 돌아옴. 연결된 일지는 건드리지 않고, 프로젝트 없는 현장 기록으로 보임.
+  const handleDeleteProject = async project => {
+    vibrate(20);
+    const ok = await handleUpdateProject(project.id, { deleted: true, deletedAt: Date.now() });
+    if (!ok) return;
+    showToast(`프로젝트 "${project.name}"를 삭제했어요. 기록은 그대로 남아 있어요.`, {
+      label: '실행취소', icon: Undo2, duration: 6000,
+      onClick: () => handleUpdateProject(project.id, { deleted: false, deletedAt: null }),
+    });
+  };
+  const projectMap = useMemo(() => { const m = {}; projects.forEach(x => { if (!x.deleted) m[x.id] = x; }); return m; }, [projects]);
+
+  // 옛 기록 정리: 같은 업무명의 일지(프로젝트에 연결 안 된 것)를 한 번에 새 프로젝트에 묶음. 일지 파일 저장 1번, [실행취소]로 원래대로.
+  const handlePromoteTitle = async title => {
+    const nm = (title || '').trim();
+    if (!nm) return null;
+    const existing = projects.find(x => !x.deleted && x.name === nm);
+    const project = existing || await handleCreateProject(nm);
+    if (!project) return null;
+    const liveIds = new Set(projects.filter(x => !x.deleted).map(x => x.id)); liveIds.add(project.id);
+    const loose = e => !e.deleted && e.title === nm && (!e.projectId || !liveIds.has(e.projectId));
+    const before = {}; // id -> 원래 projectId (되돌릴 때 사용)
+    try {
+      await writeActiveEntries(current => {
+        Object.keys(before).forEach(k => delete before[k]);
+        return current.map(e => { if (!loose(e)) return e; before[e.id] = e.projectId || ''; return { ...e, projectId: project.id }; });
+      }, `업무명 "${nm}" 일지를 프로젝트로 묶기`).then(merged => setEntries(merged));
+    } catch (err) {
+      showToast('묶기 실패: ' + err.message, () => handlePromoteTitle(title));
+      return null;
+    }
+    const n = Object.keys(before).length;
+    showToast(`"${nm}" 기록 ${n}건을 프로젝트로 묶었어요.`, {
+      label: '실행취소', icon: Undo2, duration: 8000,
+      onClick: async () => {
+        try {
+          const merged = await writeActiveEntries(current => current.map(e => (e.id in before && e.projectId === project.id) ? { ...e, projectId: before[e.id] } : e), '프로젝트로 묶은 것 취소');
+          setEntries(merged);
+          if (!existing) await handleUpdateProject(project.id, { deleted: true, deletedAt: Date.now() });
+        } catch (err) { showToast('되돌리기 실패: ' + err.message); }
+      },
+    });
+    return project;
+  };
+
   /* ---------- 13. 일지 작성 / 수정 / 삭제 (+ 모달 열고 닫기) ---------- */
-  const openNewEntry = () => { setEditingEntry(null); setPrefillNote(null); setModalOpen(true); };
+  const openNewEntry = () => { setEditingEntry(null); setPrefillNote(null); setPresetProject(null); setModalOpen(true); };
+  const openNewEntryForProject = pr => { setEditingEntry(null); setPrefillNote(null); setPresetProject({ projectId: pr.id, title: pr.name }); setModalOpen(true); };
   const openEditEntry = entry => {
     if (entry._readonly && !window.confirm('이 일지는 보관된 레포에 있어요. 수정하면 그 레포에 바로 저장돼요. 계속할까요?')) return;
-    setEditingEntry(entry); setPrefillNote(null); setModalOpen(true);
+    setEditingEntry(entry); setPrefillNote(null); setPresetProject(null); setModalOpen(true);
   };
-  const closeModal = () => { setModalOpen(false); setEditingEntry(null); setPrefillNote(null); };
+  const closeModal = () => { setModalOpen(false); setEditingEntry(null); setPrefillNote(null); setPresetProject(null); };
 
   // 빠른 기록 카드에서 "일지 보기" — 연결된 일지를 찾아 업무일지 탭으로 이동 후 수정 모달을 엶
   const handleViewLinkedEntry = note => {
@@ -5390,6 +5762,7 @@ function App() {
   const unprocessedNoteCount = quickNotes.filter(n => !n.processed && !n.deleted).length;
 
   return (
+    <ProjectsCtx.Provider value={projectMap}>
     <div className="h-[100dvh] flex flex-col bg-[#F7F7F9] dark:bg-[#0B0E13] transition-colors overflow-hidden">
       <div ref={scrollRef} onTouchStart={onPullTouchStart} onTouchMove={onPullTouchMove} onTouchEnd={onPullTouchEnd}
         className="flex-1 overflow-y-auto overflow-x-hidden" style={{ paddingTop: 'env(safe-area-inset-top, 0px)', scrollbarGutter: 'stable' }}>
@@ -5454,7 +5827,7 @@ function App() {
           {tab === 'quick' && <QuickCaptureTab cfg={cfg} notes={displayNotes} phrases={phrases} editingNote={editingNote} onEditNote={setEditingNote} onAdd={handleAddNote} onDelete={handleDeleteNote} onBulkDelete={handleBulkDeleteNotes} onRestore={handleRestoreNote} onPermanentDelete={handlePermanentDeleteNote} onEditSave={handleEditNoteSave} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} uploading={uploading} savingEdit={savingNoteEdit} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
           {tab === 'todos' && <TodoTab todos={visibleTodos} onAdd={handleAddTodo} onToggle={handleToggleTodo} onDelete={handleDeleteTodo} onEdit={handleEditTodo} onClearDone={handleClearDoneTodos} onBulkComplete={handleBulkCompleteTodos} onBulkDelete={handleBulkDeleteTodos}
             memos={visibleMemos} onAddMemo={handleAddMemo} onEditMemo={handleEditMemo} onDeleteMemo={handleDeleteMemo} />}
-          {tab === 'entries' && <EntriesTab cfg={cfg} entries={displayEntries} notes={displayNotes} categories={allCategories} categoryMap={allCategoryMap} onOpenNew={openNewEntry} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onBulkDelete={handleBulkDeleteEntries} onBulkFavorite={handleBulkFavoriteEntries} onBulkField={handleBulkFieldEntries} onRestore={handleRestoreEntry} onPermanentDelete={handlePermanentDeleteEntry} onViewSource={handleViewSourceNote} onPreviewEntry={entry => setPreviewEntryId(entry.id)} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
+          {tab === 'entries' && <EntriesTab cfg={cfg} entries={displayEntries} notes={displayNotes} categories={allCategories} categoryMap={allCategoryMap} onOpenNew={openNewEntry} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onBulkDelete={handleBulkDeleteEntries} onBulkFavorite={handleBulkFavoriteEntries} onBulkField={handleBulkFieldEntries} onRestore={handleRestoreEntry} onPermanentDelete={handlePermanentDeleteEntry} onViewSource={handleViewSourceNote} onPreviewEntry={entry => setPreviewEntryId(entry.id)} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} projectRecords={projects} onCreateProject={handleCreateProject} onUpdateProject={handleUpdateProject} onDeleteProject={handleDeleteProject} onWriteForProject={openNewEntryForProject} onPromoteTitle={handlePromoteTitle} />}
           {tab === 'settings' && (
             <div className="space-y-6">
               <div className="space-y-2.5">
@@ -5505,7 +5878,7 @@ function App() {
         </div>
       </div>
 
-      <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} cfg={cfg} existingProjects={existingProjects} existingTags={existingTags} recentTags={recentTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
+      <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} presetProject={presetProject} cfg={cfg} existingProjects={existingProjects} projectList={buildProjectList(projects, displayEntries)} onCreateProject={handleCreateProject} existingTags={existingTags} recentTags={recentTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
       <EntryPreviewModal open={!!previewEntry} entry={previewEntry} cfg={cfg} categoryMap={allCategoryMap} onClose={() => setPreviewEntryId(null)} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onViewSource={handleViewSourceNote} />
       {/* 빠른 기록 수정창: 빠른 기록 탭뿐 아니라 업무일지 탭의 "원본 빠른 기록 보기" 팝업에서도 열려야 해서 앱 전체 수준에 둠 */}
       <NoteEditModal open={!!editingNote} note={editingNote} cfg={editingNote ? repoCfgFor(cfg, editingNote._repo) : cfg} onClose={() => setEditingNote(null)}
@@ -5514,6 +5887,7 @@ function App() {
       <Toast toast={toast} onAction={() => { if (toast && toast.action) toast.action.onClick(); }} />
       <GlobalLightbox />
     </div>
+    </ProjectsCtx.Provider>
   );
 }
 

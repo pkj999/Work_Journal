@@ -3,7 +3,7 @@
   "private": true,
   "description": "업무일지 index.html을 실제 브라우저(Playwright)로 돌려서 확인하는 회귀 테스트",
   "scripts": {
-    "test": "node emph-unit.js && node baseline.js && node bulk.js && node bulk2.js && node emph-ui.js && node details.js && node views.js && node safety.js && node rules-readability.js && node layout.js && node wording.js && node structure.js && node collect.js && node tags.js && node tagmgr.js"
+    "test": "node emph-unit.js && node baseline.js && node bulk.js && node bulk2.js && node emph-ui.js && node details.js && node views.js && node safety.js && node rules-readability.js && node layout.js && node wording.js && node structure.js && node collect.js && node tags.js && node tagmgr.js && node projects.js"
   },
   "dependencies": {
     "@babel/standalone": "7.24.7",
@@ -12,6 +12,7 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "playwright": "1.56.1"
+    "playwright": "1.56.1",
+    "xlsx": "^0.18.5"
   }
 }
