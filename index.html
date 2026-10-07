@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.44 · 2026.10.07';
+const APP_VERSION = 'ver.45 · 2026.10.07';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -3113,6 +3113,15 @@ function ProjectPicker({ value, projectList, onChange, onCreateProject }) {
   );
 }
 
+// 폼 내용이 같은지 비교 — 날짜는 제외(다른 날 열면 오늘 날짜만 달라도 "내용 있음"으로 보이면 안 되므로), 없는 칸은 빈 값으로 봄
+function sameDraftContent(formA, imgsA, formB, imgsB) {
+  const norm = (f, imgs) => JSON.stringify({
+    f: Object.keys(EMPTY_FORM).filter(k => k !== 'date').map(k => { const v = f[k]; return v == null ? (Array.isArray(EMPTY_FORM[k]) ? [] : '') : v; }),
+    imgs: imgs || [],
+  });
+  try { return norm(formA, imgsA) === norm(formB, imgsB); } catch (e) { return false; }
+}
+
 function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existingProjects, projectList, onCreateProject, existingTags, recentTags, categories, onClose, onSave }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -3124,6 +3133,7 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
   const firstFieldRef = useRef(null);
   const photoInputRef = useRef(null);
   const draftKeyRef = useRef(null); // 지금 열려있는 폼에 대응하는 임시저장 키 (수정 중인 일지 id, 또는 'new'/'note:노트id')
+  const baseFormRef = useRef(null); // 열었을 때의 원본 폼(임시저장이 "아무것도 안 쓴 상태"인지 비교용)
   const baselineRef = useRef(null); // 열었을 때의 원본 상태 — 이것과 달라지면 "변경됨"으로 간주
   useBackButtonClose(open, onClose);
 
@@ -3168,10 +3178,16 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
       baseImages = [];
     }
     baselineRef.current = JSON.stringify({ form: baseForm, keepImages: baseImages });
+    baseFormRef.current = { form: baseForm, keepImages: baseImages };
 
     // 임시저장된 내용이 있으면 이어서 쓸지 물어봄 (사진 파일 자체는 localStorage에 못 담아서 새로 골라야 함)
     let draft = null;
     try { const raw = localStorage.getItem(draftKeyRef.current); if (raw) draft = JSON.parse(raw); } catch (e) {}
+    // 아무것도 안 쓰고 닫았을 때 남은 빈 임시저장(예전 버전이 만든 것 포함)은 묻지 않고 버림
+    if (draft && draft.form && sameDraftContent(draft.form, draft.keepImages || baseImages, baseForm, baseImages)) {
+      try { localStorage.removeItem(draftKeyRef.current); } catch (e) {}
+      draft = null;
+    }
     if (draft && draft.form && window.confirm('작성 중이던 내용이 남아있어요. 이어서 작성할까요?\n("취소"를 누르면 새로 시작하고 임시저장 내용은 지워집니다)')) {
       setForm(draft.form);
       setKeepImages(draft.keepImages || baseImages);
@@ -3189,7 +3205,12 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
   useEffect(() => {
     if (!open || !draftKeyRef.current) return;
     const t = setTimeout(() => {
-      try { localStorage.setItem(draftKeyRef.current, JSON.stringify({ form, keepImages, ts: Date.now() })); } catch (e) {}
+      try {
+        const base = baseFormRef.current;
+        // 열었을 때와 내용이 같으면(아무것도 안 썼거나 쓴 걸 다 지움) 임시저장을 만들지 않고, 있던 것도 지움
+        if (base && sameDraftContent(form, keepImages, base.form, base.keepImages)) localStorage.removeItem(draftKeyRef.current);
+        else localStorage.setItem(draftKeyRef.current, JSON.stringify({ form, keepImages, ts: Date.now() }));
+      } catch (e) {}
     }, 800);
     return () => clearTimeout(t);
   }, [open, form, keepImages]);
