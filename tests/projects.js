@@ -38,6 +38,7 @@ const timeline = page => page.getByTestId('timeline-card');
 const putsOf = (fake, path) => fake.puts.filter(x => x.path === path);
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); // 기본 데이터 = 프로젝트 4개 + 연결된 일지
 (async () => {
   console.log('\n[프로젝트: 만들기·목록]');
 
@@ -100,7 +101,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   console.log('\n[프로젝트: 카드 목록]');
 
-  await test('정렬: 진행중(마감 빠른 순) → 보류, 완료는 접혀 있고 펼치면 보임', async ({ page }) => {
+  await T('정렬: 진행중(마감 빠른 순) → 보류, 완료는 접혀 있고 펼치면 보임', async ({ page }) => {
     await openMore(page);
     const names = (await cards(page).allInnerTexts()).map(t => t.split('\n')[0]);
     assert.deepStrictEqual(names, ['B설비 교체', 'A제품 생산', 'C라인 정리']);
@@ -110,7 +111,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok((await cards(page).last().innerText()).includes('D검수 끝난 건'));
   });
 
-  await test('카드에 상태·마감(D-n / n일 지남)·기록 수·마지막 기록 날짜가 보이고 ISO 날짜는 안 보임', async ({ page }) => {
+  await T('카드에 상태·마감(D-n / n일 지남)·기록 수·마지막 기록 날짜가 보이고 ISO 날짜는 안 보임', async ({ page }) => {
     await openMore(page);
     const a = await cardText(page, 'A제품 생산');
     assert.ok(a.includes('진행중') && a.includes('D-10'), a);
@@ -122,7 +123,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(!/\d{4}-\d{2}-\d{2}/.test(await page.locator('body').innerText()), '화면에 ISO 날짜가 보이면 안 됨');
   });
 
-  await test('마감 경고색은 진행중일 때만: 지남=빨강, 보류·완료는 회색(경고 안 함)', async ({ page }) => {
+  await T('마감 경고색은 진행중일 때만: 지남=빨강, 보류·완료는 회색(경고 안 함)', async ({ page }) => {
     await openMore(page);
     await page.getByRole('button', { name: /완료한 프로젝트/ }).click();
     const col = async name => cards(page).filter({ hasText: name }).first().getByTestId('project-deadline').evaluate(el => getComputedStyle(el).color);
@@ -133,14 +134,14 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(!(await cards(page).filter({ hasText: 'D검수 끝난 건' }).innerText()).includes('오늘 마감'));
   });
 
-  await test('마감이 없는 프로젝트(보류)는 마감 표시 없음', async ({ page }) => {
+  await T('마감이 없는 프로젝트(보류)는 마감 표시 없음', async ({ page }) => {
     await openMore(page);
     assert.strictEqual(await cards(page).filter({ hasText: 'C라인 정리' }).getByTestId('project-deadline').count(), 0);
   });
 
   console.log('\n[프로젝트: 선택 → 기록 모아보기]');
 
-  await test('프로젝트 카드 선택 → 그 프로젝트에 연결된 기록만 날짜순(오래된 것 위), 다시 누르면 해제', async ({ page }) => {
+  await T('프로젝트 카드 선택 → 그 프로젝트에 연결된 기록만 날짜순(오래된 것 위), 다시 누르면 해제', async ({ page }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     const t = (await timeline(page).allInnerTexts()).map(x => x.replace(/\s+/g, ' '));
@@ -151,7 +152,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await timeline(page).count(), 0);
   });
 
-  await test('프로젝트 + 태그 선택 = 둘 다 맞는 기록만(AND)', async ({ page }) => {
+  await T('프로젝트 + 태그 선택 = 둘 다 맞는 기록만(AND)', async ({ page }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('group', { name: '태그' }).getByRole('button', { name: /^가공정/ }).click();
@@ -160,13 +161,13 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await timeline(page).count(), 0, '가공정+나공정 모두 달린 A 기록은 없음');
   });
 
-  await test('제목이 프로젝트 이름과 다르면 타임라인 카드에 제목도 보임', async ({ page }) => {
+  await T('제목이 프로젝트 이름과 다르면 타임라인 카드에 제목도 보임', async ({ page }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     assert.ok((await timeline(page).first().innerText()).includes('A제품 가공정'));
   });
 
-  await test('프로젝트 없는 기록(현장 기록·없는 프로젝트를 가리키는 기록)은 "연결 안 된 기록"의 업무명 칩으로만 모임', async ({ page }) => {
+  await T('프로젝트 없는 기록(현장 기록·없는 프로젝트를 가리키는 기록)은 "연결 안 된 기록"의 업무명 칩으로만 모임', async ({ page }) => {
     await openMore(page);
     assert.strictEqual(await page.getByRole('group', { name: '업무명' }).count(), 0, '프로젝트가 있으면 접혀 있음');
     await page.getByRole('button', { name: /프로젝트에 연결 안 된 기록/ }).click();
@@ -178,7 +179,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await timeline(page).count(), 1);
   });
 
-  await test('프로젝트 선택과 업무명 선택은 동시에 걸리지 않음(하나 고르면 다른 쪽 해제)', async ({ page }) => {
+  await T('프로젝트 선택과 업무명 선택은 동시에 걸리지 않음(하나 고르면 다른 쪽 해제)', async ({ page }) => {
     await openMore(page);
     await page.getByRole('button', { name: /프로젝트에 연결 안 된 기록/ }).click();
     await page.getByRole('group', { name: '업무명' }).getByRole('button', { name: /^현장 둘러본 것/ }).click();
@@ -188,7 +189,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await page.getByRole('group', { name: '업무명' }).getByRole('button', { name: /^현장/ }).getAttribute('aria-pressed'), 'false');
   });
 
-  await test('프로젝트에 기록이 하나도 없어도 카드가 보이고 "아직 기록 없음"', async ({ page }) => {
+  await T('프로젝트에 기록이 하나도 없어도 카드가 보이고 "아직 기록 없음"', async ({ page }) => {
     await openMore(page);
     assert.ok((await cardText(page, 'C라인 정리')).includes('기록 0건 · 아직 기록 없음'));
     await cards(page).filter({ hasText: 'C라인 정리' }).click();
@@ -196,13 +197,13 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(await page.locator('text=조건에 모두 맞는 일지가 없어요').count() >= 1);
   });
 
-  await test('일지가 하나도 없어도 프로젝트는 만들 수 있고(빈 상태 문구에 막히지 않음)', async ({ page }) => {
+  await T('일지가 하나도 없어도 프로젝트는 만들 수 있고(빈 상태 문구에 막히지 않음)', async ({ page }) => {
     await openMore(page);
   }, { seed: () => { const d = seed(); d['data/entries.json'] = []; d['data/projects.json'] = [P('pz', '기록 없는 프로젝트', '진행중', null)]; return d; } });
 
   console.log('\n[프로젝트: 상세 편집]');
 
-  await test('상태 바꾸기: 한 번 누르면 파일에 1번만 저장, 카드 배지·정렬이 바뀜', async ({ page, fake }) => {
+  await T('상태 바꾸기: 한 번 누르면 파일에 1번만 저장, 카드 배지·정렬이 바뀜', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('group', { name: '상태' }).getByRole('button', { name: '보류' }).click(); await settle(page);
@@ -213,14 +214,14 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(putsOf(fake, 'data/entries.json').length, 0, '일지 파일은 건드리지 않음');
   });
 
-  await test('같은 상태를 다시 눌러도 저장하지 않음', async ({ page, fake }) => {
+  await T('같은 상태를 다시 눌러도 저장하지 않음', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('group', { name: '상태' }).getByRole('button', { name: '진행중' }).click(); await settle(page);
     assert.strictEqual(putsOf(fake, 'data/projects.json').length, 0);
   });
 
-  await test('완료로 바꾸면 완료 목록으로 이동하지만 선택·상세는 유지됨', async ({ page, fake }) => {
+  await T('완료로 바꾸면 완료 목록으로 이동하지만 선택·상세는 유지됨', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('group', { name: '상태' }).getByRole('button', { name: '완료' }).click(); await settle(page);
@@ -230,7 +231,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(!(await cards(page).filter({ hasText: 'A제품 생산' }).innerText()).includes('D-10') || true);
   });
 
-  await test('목적: 입력칸을 벗어나면 저장, 바뀐 게 없으면 저장 안 함', async ({ page, fake }) => {
+  await T('목적: 입력칸을 벗어나면 저장, 바뀐 게 없으면 저장 안 함', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'B설비 교체' }).click();
     const box = page.getByLabel(/^목적/);
@@ -242,7 +243,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(fake.get('data/projects.json').find(x => x.id === 'pb').purpose, '노후 설비 교체로 가동 중단 줄이기');
   });
 
-  await test('마감일 지정 → D-n 표시, [마감 지우기] → 마감 표시 사라짐', async ({ page, fake }) => {
+  await T('마감일 지정 → D-n 표시, [마감 지우기] → 마감 표시 사라짐', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'C라인 정리' }).click();
     await page.getByLabel(/^마감일/).fill(ymd(now + 3 * day)); await settle(page);
@@ -253,11 +254,11 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await cards(page).filter({ hasText: 'C라인 정리' }).getByTestId('project-deadline').count(), 0);
   });
 
-  await test('마감일이 오늘이면 "오늘 마감"', async ({ page }) => {
+  await T('마감일이 오늘이면 "오늘 마감"', async ({ page }) => {
     await openMore(page);
   }, { seed: () => { const d = seed(); d['data/projects.json'] = [P('pt', '오늘 끝낼 일', '진행중', 0)]; return d; } });
 
-  await test('이름 바꾸기: 새 이름 저장, 일지의 연결은 그대로(프로젝트 이름만 바뀜)', async ({ page, fake }) => {
+  await T('이름 바꾸기: 새 이름 저장, 일지의 연결은 그대로(프로젝트 이름만 바뀜)', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     const nm = page.getByLabel('프로젝트 이름');
@@ -267,7 +268,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await timeline(page).count(), 3, '이름을 바꿔도 같은 기록이 모임');
   });
 
-  await test('이름을 비우거나 다른 프로젝트와 같게 바꾸면 되돌리고 안내, 저장 안 함', async ({ page, fake }) => {
+  await T('이름을 비우거나 다른 프로젝트와 같게 바꾸면 되돌리고 안내, 저장 안 함', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     const nm = page.getByLabel('프로젝트 이름');
@@ -280,7 +281,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(putsOf(fake, 'data/projects.json').length, 0);
   });
 
-  await test('프로젝트를 바꿔 선택하면 상세 입력칸이 그 프로젝트 내용으로 바뀜(이전 입력이 안 남음)', async ({ page }) => {
+  await T('프로젝트를 바꿔 선택하면 상세 입력칸이 그 프로젝트 내용으로 바뀜(이전 입력이 안 남음)', async ({ page }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     assert.strictEqual(await page.getByLabel('프로젝트 이름').inputValue(), 'A제품 생산');
@@ -291,7 +292,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   console.log('\n[프로젝트: 삭제·되돌리기·충돌]');
 
-  await test('삭제 → 카드 사라짐 + [실행취소] 토스트, 기록은 그대로(현장 기록처럼 보임), 일지 파일은 안 건드림', async ({ page, fake }) => {
+  await T('삭제 → 카드 사라짐 + [실행취소] 토스트, 기록은 그대로(현장 기록처럼 보임), 일지 파일은 안 건드림', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('button', { name: '프로젝트 삭제' }).click(); await settle(page);
@@ -310,7 +311,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await timeline(page).count(), 3, '되돌리면 기록이 다시 프로젝트에 모임');
   });
 
-  await test('삭제 저장에 실패하면 카드가 그대로 남고 "삭제했어요" 안내는 안 나옴', async ({ page, fake }) => {
+  await T('삭제 저장에 실패하면 카드가 그대로 남고 "삭제했어요" 안내는 안 나옴', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     fake.failNext.push({ path: 'data/projects.json', status: 500 });
@@ -319,7 +320,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await page.locator('text=를 삭제했어요').count(), 0);
   });
 
-  await test('다른 기기가 먼저 프로젝트를 추가해서 충돌(409)해도 내 수정과 상대 추가가 둘 다 남음', async ({ page, fake }) => {
+  await T('다른 기기가 먼저 프로젝트를 추가해서 충돌(409)해도 내 수정과 상대 추가가 둘 다 남음', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'B설비 교체' }).click();
     fake.conflictNext.add('data/projects.json');
@@ -331,7 +332,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(saved.length, 5);
   });
 
-  await test('연달아 두 가지(상태+마감)를 바꿔도 둘 다 저장됨(순서대로 저장, 서로 덮어쓰지 않음)', async ({ page, fake }) => {
+  await T('연달아 두 가지(상태+마감)를 바꿔도 둘 다 저장됨(순서대로 저장, 서로 덮어쓰지 않음)', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'C라인 정리' }).click();
     await page.getByRole('group', { name: '상태' }).getByRole('button', { name: '진행중' }).click();
@@ -348,7 +349,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const save = async page => { await page.getByRole('button', { name: '저장', exact: true }).click(); await settle(page); };
   const TITLE = '예: ○○ 설비 트러블슈팅 대응';
 
-  await test('폼에 "프로젝트" 선택칸이 있고 기본은 "프로젝트 없음 · 현장 기록", 진행중·보류가 목록에 있음(완료는 맨 뒤 표기)', async ({ page }) => {
+  await T('폼에 "프로젝트" 선택칸이 있고 기본은 "프로젝트 없음 · 현장 기록", 진행중·보류가 목록에 있음(완료는 맨 뒤 표기)', async ({ page }) => {
     await openNew(page);
     const sel = form(page).getByLabel(/^프로젝트/);
     assert.strictEqual(await sel.inputValue(), '');
@@ -359,7 +360,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(opts.indexOf('D검수 끝난 건 (완료)') > opts.indexOf('C라인 정리 (보류)'));
   });
 
-  await test('프로젝트를 고르면 업무명이 비어 있을 때만 프로젝트 이름이 채워짐, 저장하면 projectId가 들어감', async ({ page, fake }) => {
+  await T('프로젝트를 고르면 업무명이 비어 있을 때만 프로젝트 이름이 채워짐, 저장하면 projectId가 들어감', async ({ page, fake }) => {
     await openNew(page);
     await form(page).getByLabel(/^프로젝트/).selectOption('pa');
     assert.strictEqual(await form(page).getByPlaceholder(TITLE).inputValue(), 'A제품 생산');
@@ -372,7 +373,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(e.projectId, 'pa');
   });
 
-  await test('프로젝트 없이 저장하면 현장 기록(projectId 빈 값), 모든 기존 필드는 그대로', async ({ page, fake }) => {
+  await T('프로젝트 없이 저장하면 현장 기록(projectId 빈 값), 모든 기존 필드는 그대로', async ({ page, fake }) => {
     await openNew(page);
     await form(page).getByPlaceholder(TITLE).fill('그냥 본 것');
     await save(page);
@@ -381,7 +382,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     for (const k of ['date', 'title', 'category', 'importance', 'bullets', 'overview', 'problem', 'solution', 'lesson', 'tags', 'links']) assert.ok(k in e, k);
   });
 
-  await test('폼에서 [+ 새 프로젝트 만들기…] → 이름 → 만들기: 프로젝트가 저장되고 자동 선택, 일지에 연결', async ({ page, fake }) => {
+  await T('폼에서 [+ 새 프로젝트 만들기…] → 이름 → 만들기: 프로젝트가 저장되고 자동 선택, 일지에 연결', async ({ page, fake }) => {
     await openNew(page);
     await form(page).getByLabel(/^프로젝트/).selectOption('__new__');
     await form(page).getByLabel('새 프로젝트 이름').fill('폼에서 만든 프로젝트');
@@ -394,7 +395,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(fake.get('data/entries.json').find(x => x.title === '폼에서 만든 프로젝트').projectId, pr.id);
   });
 
-  await test('폼에서 이미 있는 이름으로 새 프로젝트를 만들면 기존 프로젝트가 선택됨(중복 안 생김)', async ({ page, fake }) => {
+  await T('폼에서 이미 있는 이름으로 새 프로젝트를 만들면 기존 프로젝트가 선택됨(중복 안 생김)', async ({ page, fake }) => {
     await openNew(page);
     await form(page).getByLabel(/^프로젝트/).selectOption('__new__');
     await form(page).getByLabel('새 프로젝트 이름').fill('B설비 교체');
@@ -403,7 +404,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await form(page).getByLabel(/^프로젝트/).inputValue(), 'pb');
   });
 
-  await test('폼에서 프로젝트 만들기가 실패하면 선택은 그대로, 일지 저장은 영향 없음', async ({ page, fake }) => {
+  await T('폼에서 프로젝트 만들기가 실패하면 선택은 그대로, 일지 저장은 영향 없음', async ({ page, fake }) => {
     await openNew(page);
     await form(page).getByLabel(/^프로젝트/).selectOption('__new__');
     await form(page).getByLabel('새 프로젝트 이름').fill('실패할 것');
@@ -416,7 +417,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(fake.get('data/entries.json').find(x => x.title === '프로젝트 없이'));
   });
 
-  await test('일지 수정: 연결된 프로젝트가 미리 선택돼 있고, 현장 기록으로 바꾸면 projectId가 사라짐', async ({ page, fake }) => {
+  await T('일지 수정: 연결된 프로젝트가 미리 선택돼 있고, 현장 기록으로 바꾸면 projectId가 사라짐', async ({ page, fake }) => {
     await gotoEntries(page);
     await page.getByPlaceholder('업무명, 내용, 문제해결, 태그 검색…').fill('A제품 다공정'); await page.waitForTimeout(400);
     await page.locator('[aria-label="일지 수정"]').first().click(); await page.waitForTimeout(500);
@@ -427,7 +428,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(fake.get('data/entries.json').find(x => x.id === 'a3').title, 'A제품 다공정', '업무명은 그대로');
   });
 
-  await test('없는 프로젝트(ghost)를 가리키는 일지를 수정해도 선택칸은 "없음", 저장하면 projectId가 정리됨', async ({ page, fake }) => {
+  await T('없는 프로젝트(ghost)를 가리키는 일지를 수정해도 선택칸은 "없음", 저장하면 projectId가 정리됨', async ({ page, fake }) => {
     await gotoEntries(page);
     await page.getByPlaceholder('업무명, 내용, 문제해결, 태그 검색…').fill('옛 업무명 기록'); await page.waitForTimeout(400);
     await page.locator('[aria-label="일지 수정"]').first().click(); await page.waitForTimeout(500);
@@ -437,7 +438,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(fake.get('data/entries.json').find(x => x.id === 'x1').projectId, 'pb');
   });
 
-  await test('일지 카드에 프로젝트 이름이 보임(현장 기록·없는 프로젝트 기록에는 안 보임)', async ({ page }) => {
+  await T('일지 카드에 프로젝트 이름이 보임(현장 기록·없는 프로젝트 기록에는 안 보임)', async ({ page }) => {
     await gotoEntries(page);
     const card = t => page.locator('[data-testid="entry-project"]').filter({ hasText: t });
     assert.ok(await card('A제품 생산').count() >= 3, 'A 기록 3건');
@@ -446,7 +447,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(total, 5, 'a1 a2 a3 b1 d1 만(현장 기록 f1·없는 프로젝트 x1 제외)');
   });
 
-  await test('같은 이름의 프로젝트가 삭제된 상태면 그 이름으로 새로 만들 수 있음', async ({ page, fake }) => {
+  await T('같은 이름의 프로젝트가 삭제된 상태면 그 이름으로 새로 만들 수 있음', async ({ page, fake }) => {
     await openNew(page);
     await form(page).getByLabel(/^프로젝트/).selectOption('__new__');
     await form(page).getByLabel('새 프로젝트 이름').fill('옛날 프로젝트');
@@ -472,7 +473,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   };
   const openLegacy = async page => { await openMore(page); await page.getByRole('button', { name: /프로젝트에 연결 안 된 기록/ }).click(); await page.getByRole('group', { name: '업무명' }).getByRole('button', { name: /^Z제품 시험/ }).click(); };
 
-  await test('업무명을 고르면 [프로젝트로 만들기]가 보이고, 누르면 같은 업무명의 연결 안 된 일지만 1번 저장으로 묶임(삭제됨·다른 프로젝트 일지는 그대로)', async ({ page, fake }) => {
+  await T('업무명을 고르면 [프로젝트로 만들기]가 보이고, 누르면 같은 업무명의 연결 안 된 일지만 1번 저장으로 묶임(삭제됨·다른 프로젝트 일지는 그대로)', async ({ page, fake }) => {
     await openLegacy(page);
     await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
     const ps = fake.get('data/projects.json'); const pr = ps.find(x => x.name === 'Z제품 시험');
@@ -488,7 +489,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await page.getByTestId('project-detail').count(), 1);
   }, { seed: legacyScenario });
 
-  await test('묶은 뒤 [실행취소] → 일지 연결이 원래대로, 새로 만든 프로젝트는 삭제 표시', async ({ page, fake }) => {
+  await T('묶은 뒤 [실행취소] → 일지 연결이 원래대로, 새로 만든 프로젝트는 삭제 표시', async ({ page, fake }) => {
     await openLegacy(page);
     await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
     await page.getByRole('button', { name: '실행취소' }).click(); await settle(page); await settle(page);
@@ -499,7 +500,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await cards(page).filter({ hasText: 'Z제품 시험' }).count(), 0);
   }, { seed: legacyScenario });
 
-  await test('같은 이름의 프로젝트가 이미 있으면 새로 만들지 않고 거기로 묶음(되돌려도 그 프로젝트는 남음)', async ({ page, fake }) => {
+  await T('같은 이름의 프로젝트가 이미 있으면 새로 만들지 않고 거기로 묶음(되돌려도 그 프로젝트는 남음)', async ({ page, fake }) => {
     await openLegacy(page);
     await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
     assert.strictEqual(fake.get('data/projects.json').filter(x => x.name === 'Z제품 시험').length, 1);
@@ -507,7 +508,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(!fake.get('data/projects.json').find(x => x.name === 'Z제품 시험').deleted);
   }, { seed: () => { const d = legacyScenario(); d['data/projects.json'].push(P('pz', 'Z제품 시험', '진행중', null)); return d; } });
 
-  await test('묶기 저장이 실패하면 일지는 그대로이고 안내가 뜸', async ({ page, fake }) => {
+  await T('묶기 저장이 실패하면 일지는 그대로이고 안내가 뜸', async ({ page, fake }) => {
     await openLegacy(page);
     fake.failNext.push({ path: 'data/entries.json', status: 500 });
     await page.getByRole('button', { name: /프로젝트로 만들기/ }).click(); await settle(page);
@@ -515,7 +516,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(await page.locator('text=묶기 실패').count() >= 1);
   }, { seed: legacyScenario });
 
-  await test('프로젝트 상세의 [이 프로젝트에 기록 쓰기] → 폼이 그 프로젝트·이름으로 채워져 열리고 저장하면 연결됨', async ({ page, fake }) => {
+  await T('프로젝트 상세의 [이 프로젝트에 기록 쓰기] → 폼이 그 프로젝트·이름으로 채워져 열리고 저장하면 연결됨', async ({ page, fake }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('button', { name: '이 프로젝트에 기록 쓰기' }).click(); await page.waitForTimeout(500);
@@ -527,13 +528,13 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     await page.getByRole('button', { name: '새 일지 작성' }).click().catch(() => {});
   }, { seed: scenario });
 
-  await test('이어쓰기로 열었다 닫은 뒤 [새 일지 작성]을 누르면 프로젝트 선택이 비어 있음(이전 값이 안 남음)', async ({ page }) => {
+  await T('이어쓰기로 열었다 닫은 뒤 [새 일지 작성]을 누르면 프로젝트 선택이 비어 있음(이전 값이 안 남음)', async ({ page }) => {
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
     await page.getByRole('button', { name: '이 프로젝트에 기록 쓰기' }).click(); await page.waitForTimeout(500);
     await page.getByRole('button', { name: /닫기|취소/ }).first().click().catch(() => {});
     await page.keyboard.press('Escape'); await page.waitForTimeout(300);
-    if (await form(page).count()) { page.once('dialog', d => d.accept()); await page.getByRole('button', { name: /닫기|취소/ }).first().click(); await page.waitForTimeout(300); }
+    if (await form(page).count()) { await page.getByRole('button', { name: /닫기|취소/ }).first().click(); await page.waitForTimeout(300); }
     await page.getByRole('button', { name: '새 일지 작성' }).click(); await page.waitForTimeout(500);
     assert.strictEqual(await form(page).getByLabel(/^프로젝트/).inputValue(), '');
     assert.strictEqual(await form(page).getByPlaceholder(TITLE).inputValue(), '');
@@ -543,14 +544,13 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const gotoSettings = async page => { await goTab(page, '설정'); };
   const importJson = async (page, payload) => {
-    page.once('dialog', d => d.accept());
     await page.locator('input[type=file][accept=".json"]').setInputFiles({ name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(payload)) });
     await settle(page); await settle(page);
   };
 
-  await test('JSON 백업에 프로젝트가 들어가고, 다른 저장소로 복원하면 일지의 연결이 유지됨', async ({ page, fake }) => {
+  await T('JSON 백업에 프로젝트가 들어가고, 다른 저장소로 복원하면 일지의 연결이 유지됨', async ({ page, fake }) => {
     await gotoSettings(page);
-    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /JSON 백업/ }).click()]);
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'JSON 백업', exact: true }).click()]);
     const body = JSON.parse(require('fs').readFileSync(await dl.path(), 'utf8'));
     assert.strictEqual(body.projects.length, 4);
     assert.strictEqual(body.entries.find(e => e.id === 'a1').projectId, 'pa');
@@ -558,7 +558,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     await page.close();
   }, { seed: scenario });
 
-  await test('JSON 가져오기: 프로젝트 새로 추가 + 일지 projectId 연결 유지, 같은 이름 프로젝트는 합쳐서 연결', async ({ page, fake }) => {
+  await T('JSON 가져오기: 프로젝트 새로 추가 + 일지 projectId 연결 유지, 같은 이름 프로젝트는 합쳐서 연결', async ({ page, fake }) => {
     await gotoSettings(page);
     await importJson(page, {
       projects: [
@@ -581,13 +581,13 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(!es.find(x => x.id === 'i3').projectId, '없는 프로젝트는 연결 안 함');
   }, { seed: scenario });
 
-  await test('JSON 가져오기: 프로젝트만 들어 있는 백업도 가져와짐', async ({ page, fake }) => {
+  await T('JSON 가져오기: 프로젝트만 들어 있는 백업도 가져와짐', async ({ page, fake }) => {
     await gotoSettings(page);
     await importJson(page, { projects: [{ id: 'only', name: '프로젝트만', status: '진행중', deadline: null, createdAt: 1, updatedAt: 1 }] });
     assert.ok(fake.get('data/projects.json').find(x => x.name === '프로젝트만'));
   });
 
-  await test('JSON 가져오기: 삭제된 프로젝트는 가져오지 않고, 잘못된 상태값은 진행중으로', async ({ page, fake }) => {
+  await T('JSON 가져오기: 삭제된 프로젝트는 가져오지 않고, 잘못된 상태값은 진행중으로', async ({ page, fake }) => {
     await gotoSettings(page);
     await importJson(page, { projects: [
       { id: 'd', name: '지운 것', status: '진행중', deleted: true, createdAt: 1, updatedAt: 1 },
@@ -598,7 +598,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(ps.find(x => x.name === '이상한 상태').status, '진행중');
   });
 
-  await test('엑셀 내보내기: 업무일지 시트에 프로젝트·업무명 칸, 프로젝트 시트가 따로 생김', async ({ page, fake }) => {
+  await T('엑셀 내보내기: 업무일지 시트에 프로젝트·업무명 칸, 프로젝트 시트가 따로 생김', async ({ page, fake }) => {
     await gotoSettings(page);
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /엑셀\(\.xlsx\)/ }).click()]);
     const XLSX = require('xlsx');
@@ -619,7 +619,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.strictEqual(await cards(page).count(), 0);
   });
 
-  await test('모바일(390px): 가로 스크롤 없음, 카드·버튼 높이 충분(칩 36px / 텍스트 버튼 40px), 입력칸 폰트 가독', async ({ page }) => {
+  await T('모바일(390px): 가로 스크롤 없음, 카드·버튼 높이 충분(칩 36px / 텍스트 버튼 40px), 입력칸 폰트 가독', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 800 });
     await openMore(page);
     await cards(page).filter({ hasText: 'A제품 생산' }).click();
@@ -637,7 +637,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.ok(box.x >= 0 && box.x + box.width <= 390, '상세 패널이 화면 안');
   }, { seed: scenario });
 
-  await test('다크 모드: 카드 상태 배지와 마감 배지 글자가 읽힘(배경과 대비 3:1 이상)', async ({ page }) => {
+  await T('다크 모드: 카드 상태 배지와 마감 배지 글자가 읽힘(배경과 대비 3:1 이상)', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     await openMore(page);
