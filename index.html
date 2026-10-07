@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.42 · 2026.10.07';
+const APP_VERSION = 'ver.43 · 2026.10.07';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -329,23 +329,36 @@ const tagKey = t => String(t == null ? '' : t).toLowerCase().replace(/\s+/g, '')
 function buildTagIndex(entries) {
   const map = new Map();
   (entries || []).forEach(e => {
-    const seen = new Set();
+    const seen = new Set(), seenSpell = new Set();
     (e.tags || []).forEach(raw => {
       const label = String(raw == null ? '' : raw).trim();
       const key = tagKey(label);
-      if (!key || seen.has(key)) return; // 한 일지에 같은 태그가 두 번 있어도 1건으로 셈
-      seen.add(key);
+      if (!key) return;
       let m = map.get(key);
       if (!m) { m = { key, spell: new Map(), count: 0, last: '' }; map.set(key, m); }
-      m.count++;
-      m.spell.set(label, (m.spell.get(label) || 0) + 1);
-      if ((e.date || '') > m.last) m.last = e.date || '';
+      if (!seen.has(key)) { seen.add(key); m.count++; if ((e.date || '') > m.last) m.last = e.date || ''; } // 한 일지에 같은 태그가 두 번 있어도 1건으로 셈
+      if (!seenSpell.has(key + '\u0000' + label)) { seenSpell.add(key + '\u0000' + label); m.spell.set(label, (m.spell.get(label) || 0) + 1); } // 표기는 모두 기록(안내용)
     });
   });
   return [...map.values()].map(m => {
     const label = [...m.spell.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
-    return { key: m.key, label, count: m.count, last: m.last };
+    const variants = [...m.spell.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([l, c]) => ({ label: l, count: c }));
+    return { key: m.key, label, count: m.count, last: m.last, variants };
   }).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+// 태그 이름 바꾸기/합치기: tags 배열에서 fromKey(바꿀 태그)와 toKey(바꾼 이름과 같은 태그)에 해당하는 것을 모두 label 하나로 합침(처음 나온 자리에 한 번만).
+// fromKey가 없으면 null(바꿀 게 없음), 결과가 이전과 같으면 null
+function renameTagInList(tags, fromKey, label) {
+  const list = Array.isArray(tags) ? tags : [];
+  if (!list.some(t => tagKey(t) === fromKey)) return null;
+  const toKey = tagKey(label);
+  const out = []; let placed = false;
+  list.forEach(t => {
+    const k = tagKey(t);
+    if (k === fromKey || k === toKey) { if (!placed) { out.push(label); placed = true; } }
+    else out.push(t);
+  });
+  return JSON.stringify(out) === JSON.stringify(list) ? null : out;
 }
 // 기록할 때 한 번에 눌러 붙일 "최근·자주 쓴 태그": 가장 최근 일지 N개에서 많이 쓴 순(같으면 더 최근에 쓴 것). 표기가 달라도 하나로 합치고 가장 최근 표기를 보여줌
 function buildRecentTags(entries, { window = 30, limit = 8 } = {}) {
@@ -1392,6 +1405,75 @@ function CategoryManager({ customCategories, onAdd, onDelete }) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function TagManager({ tags, onRename }) {
+  const [editingKey, setEditingKey] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [filter, setFilter] = useState('');
+  const [busy, setBusy] = useState(false);
+  const startEdit = t => { setEditingKey(t.key); setDraft(t.label); };
+  const cancel = () => { setEditingKey(null); setDraft(''); };
+  const shown = useMemo(() => { const q = tagKey(filter); return q ? tags.filter(t => t.key.includes(q)) : tags; }, [tags, filter]);
+  const cur = tags.find(t => t.key === editingKey);
+  const name = draft.trim();
+  const hasComma = /[,，]/.test(name);
+  const other = cur && name && !hasComma ? tags.find(t => t.key === tagKey(name) && t.key !== cur.key) : null; // 이미 있는 다른 태그 이름이면 합쳐짐
+  const unchanged = !!cur && name === cur.label && cur.variants.length <= 1;
+  const canSave = !!cur && !!name && !hasComma && !unchanged && !busy;
+  const save = async () => {
+    if (!canSave) return;
+    setBusy(true);
+    try { const ok = await onRename(cur, name); if (ok !== false) cancel(); } finally { setBusy(false); }
+  };
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4">
+      <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300 mb-1"><TagIcon size={14} /> 태그 이름 바꾸기·합치기</div>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
+        일지에 붙인 태그의 이름을 한꺼번에 바꿔요. 이미 있는 태그 이름으로 바꾸면 하나로 합쳐져요. 보관된 레포의 지난 일지는 바뀌지 않아요.
+      </p>
+      {tags.length === 0 ? (
+        <div className="text-[13px] text-slate-500 dark:text-slate-400 py-2">아직 태그가 없어요.</div>
+      ) : (
+        <React.Fragment>
+          {tags.length > 12 && (
+            <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="태그 찾기" aria-label="태그 찾기"
+              className="w-full mb-2 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+          )}
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {shown.map(t => editingKey === t.key ? (
+              <li key={t.key} className="py-2">
+                <div className="flex items-center gap-2">
+                  <input value={draft} onChange={e => setDraft(e.target.value)} autoFocus aria-label={`태그 ${t.label} 새 이름`}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { e.stopPropagation(); cancel(); } }}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200" />
+                  <IconButton label={`태그 ${t.label} 이름 저장`} title="저장" tone="primary" onClick={save} disabled={!canSave} className="disabled:opacity-40"><CircleCheckBig size={16} /></IconButton>
+                  <IconButton label={`태그 ${t.label} 이름 바꾸기 취소`} title="취소" onClick={cancel}><X size={16} /></IconButton>
+                </div>
+                <p className="text-[11px] mt-1 leading-relaxed text-slate-500 dark:text-slate-400" role="status">
+                  {hasComma ? '쉼표(,)는 태그 이름에 쓸 수 없어요.'
+                    : !name ? '새 이름을 입력해 주세요.'
+                    : other ? `이미 있는 "${other.label}"(${other.count}건)과 합쳐져요. 일지 ${t.count}건의 태그가 "${other.label}"로 바뀌어요.`
+                    : unchanged ? '지금과 같은 이름이에요.'
+                    : `일지 ${t.count}건의 태그가 "${name}"(으)로 바뀌어요. 저장 뒤 [실행취소]로 되돌릴 수 있어요.`}
+                </p>
+              </li>
+            ) : (
+              <li key={t.key} className="py-1 flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <span className="text-[13px] text-slate-700 dark:text-slate-200 break-words">{t.label}</span>
+                  <span className="ml-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">{t.count}건</span>
+                  {t.variants.length > 1 && <div className="text-[11px] text-slate-500 dark:text-slate-400 break-words">표기 {t.variants.length}가지: {t.variants.map(v => `${v.label}(${v.count})`).join(', ')}</div>}
+                </div>
+                <TextAction icon={Pencil} onClick={() => startEdit(t)} aria-label={`태그 ${t.label} 이름 바꾸기`}>이름 바꾸기</TextAction>
+              </li>
+            ))}
+          </ul>
+          {shown.length === 0 && <div className="text-[13px] text-slate-500 dark:text-slate-400 py-2">찾는 태그가 없어요.</div>}
+        </React.Fragment>
+      )}
     </div>
   );
 }
@@ -4234,6 +4316,7 @@ function App() {
   }, [displayEntries]);
   const existingTags = useMemo(() => [...new Set(displayEntries.flatMap(e => e.tags || []))].sort(), [displayEntries]);
   const recentTags = useMemo(() => buildRecentTags(displayEntries), [displayEntries]);
+  const manageTags = useMemo(() => buildTagIndex(entries.filter(e => !e.deleted && !e._readonly)), [entries]); // 태그 이름 바꾸기 대상: 지금 쓰는 저장소의 일지만(보관 레포는 읽기 전용)
 
   /* ---------- 6. 전체 데이터 백업 ---------- */
   // 설정 화면의 "전체 데이터 백업" — 활성 레포 + 보관 레포까지 전부 새로 불러와서 JSON 파일로 내보냄.
@@ -4905,6 +4988,57 @@ function App() {
     }
   };
   const BULK_FIELD_LABEL = { category: '카테고리', importance: '중요도' };
+  /* ---------- 태그 이름 바꾸기/합치기 ----------
+     저장 1번으로 모든 일지(휴지통 포함)의 태그를 바꿈. 409 충돌이면 최신 데이터에 같은 변경을 다시 적용(그 사이 다른 기기가 추가한 일지도 같이 바뀜).
+     실행취소용으로 바뀐 일지의 이전 태그·수정 시각을 기록해 두고, 되돌릴 때는 "바꾼 뒤 상태 그대로인 일지"만 되돌림(그 뒤에 직접 고친 일지는 건드리지 않음) */
+  const handleRenameTag = async (tag, newLabel) => {
+    const label = String(newLabel || '').trim();
+    if (!label || /[,，]/.test(label)) return false;
+    const fromKey = tag.key;
+    if (!entries.some(e => !e._readonly && renameTagInList(e.tags, fromKey, label))) { showToast('바꿀 일지가 없어요. 이미 같은 이름이에요.'); return false; }
+    let changes = new Map(); // id -> { before, after, beforeUpdatedAt }
+    let activeCount = 0;
+    try {
+      const merged = await writeActiveEntries(current => {
+        changes = new Map(); activeCount = 0;
+        return current.map(e => {
+          if (e._readonly) return e;
+          const next = renameTagInList(e.tags, fromKey, label);
+          if (!next) return e;
+          changes.set(e.id, { before: e.tags || [], after: next, beforeUpdatedAt: e.updatedAt });
+          if (!e.deleted) activeCount++;
+          return { ...e, tags: next, updatedAt: Date.now() };
+        });
+      }, `태그 이름 변경: ${tag.label} → ${label}`);
+      setEntries(merged);
+    } catch (err) {
+      showToast('태그 이름 바꾸기 실패: ' + err.message, () => handleRenameTag(tag, label));
+      return false;
+    }
+    const snapshot = changes;
+    showToast(`태그 "${tag.label}"을(를) "${label}"(으)로 바꿨어요 (일지 ${activeCount}건).`, {
+      label: '실행취소', icon: Undo2, duration: 8000,
+      onClick: async () => {
+        let restored = 0, skipped = 0;
+        try {
+          const merged = await writeActiveEntries(current => {
+            restored = 0; skipped = 0;
+            return current.map(e => {
+              const c = snapshot.get(e.id);
+              if (!c) return e;
+              if (JSON.stringify(e.tags || []) !== JSON.stringify(c.after)) { skipped++; return e; } // 그 뒤에 직접 고친 일지는 그대로 둠
+              restored++;
+              return { ...e, tags: c.before, updatedAt: c.beforeUpdatedAt };
+            });
+          }, `태그 이름 변경 되돌리기: ${label} → ${tag.label}`);
+          setEntries(merged);
+          showToast(skipped ? `${restored}건을 되돌렸어요. ${skipped}건은 그 뒤에 직접 고쳐서 그대로 뒀어요.` : `${restored}건을 되돌렸어요.`);
+        } catch (err) { showToast('되돌리기 실패: ' + err.message); }
+      },
+    });
+    return true;
+  };
+
   const handleBulkFieldEntries = async (ids, field, value) => {
     if (!ids.length || !BULK_FIELD_LABEL[field]) return false;
     const idSet = new Set(ids);
@@ -5338,6 +5472,7 @@ function App() {
               <div className="space-y-2.5">
                 <SettingsSectionHeader icon={TagIcon} label="커스터마이즈" />
                 <CategoryManager customCategories={customCategories} onAdd={handleAddCategory} onDelete={handleDeleteCategory} />
+                <TagManager tags={manageTags} onRename={handleRenameTag} />
                 <PhraseManager phrases={phrases} onAdd={handleAddPhrase} onDelete={handleDeletePhrase} />
               </div>
 
