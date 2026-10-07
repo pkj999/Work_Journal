@@ -75,6 +75,7 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     await page.getByLabel('새 프로젝트 이름').fill('중복 테스트');
     await page.getByRole('button', { name: '만들기' }).click(); await settle(page);
     assert.strictEqual(fake.get('data/projects.json').length, 1, '같은 이름은 새로 만들지 않음');
+    assert.strictEqual(putsOf(fake, 'data/projects.json').length, 1, '같은 이름이면 저장도 안 함(내용이 같은 저장을 또 하지 않음)');
     assert.strictEqual(await cards(page).count(), 1);
   });
 
