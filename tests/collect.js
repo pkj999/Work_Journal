@@ -24,7 +24,7 @@ const scenario = () => {
 const open = async page => { await gotoEntries(page); await page.getByRole('button', { name: '모아보기' }).click(); await page.waitForTimeout(400); };
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // 프로젝트 칩과 태그 칩은 이름이 겹칠 수 있어서(예: 프로젝트 "다공정 이슈 대응" / 태그 "다공정") 그룹(프로젝트/태그) 안에서 찾음
-const projChip = (page, label) => page.getByRole('group', { name: '프로젝트' }).getByRole('button', { name: new RegExp('^' + esc(label) + '\\s+\\d+$') });
+const projChip = (page, label) => page.getByRole('group', { name: '업무명' }).getByRole('button', { name: new RegExp('^' + esc(label) + '\\s+\\d+$') });
 const tagChip = (page, label) => page.getByRole('group', { name: '태그' }).getByRole('button', { name: new RegExp('^' + esc(label) + '\\s+\\d+$') });
 const cards = page => page.getByTestId('timeline-card');
 const cardTexts = async page => (await cards(page).allInnerTexts()).map(t => t.replace(/\s+/g, ' '));
