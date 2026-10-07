@@ -26,3 +26,4 @@ Chromium 경로가 기본(`/opt/pw-browsers/chromium`)과 다르면 `CHROMIUM_PA
 - `bulk.js`, `bulk2.js` — 일괄 선택(선택 모드) 기능 + 엣지 케이스
 - `emph-unit.js` — 강조(==) 파싱/토글 로직 단위 테스트(index.html의 실제 코드를 꺼내서 실행, 무작위 3000회 포함)
 - `emph-ui.js` — 강조 기능 UI: 입력 → 저장 → 카드 표시 → 검색과 겹침 → 빠른 기록 → 모바일/다크
+- `collect.js` — 모아보기(프로젝트·태그 필터, 여러 태그 AND, 표기 다른 태그 합치기, 삭제 후 선택 정리)

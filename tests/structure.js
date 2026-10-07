@@ -188,7 +188,7 @@ console.log('\n[5단계: 소스 구조 규칙 — 정적 검사]');
     await page.getByRole('button', { name: /기억할 것/ }).click(); await page.waitForTimeout(300); await audit(page, '기억할 것');
     await page.locator('[aria-label="기억할 것 수정"]').first().click(); await page.waitForTimeout(250); await audit(page, '기억할 것 수정 줄');
     await gotoEntries(page); await audit(page, '업무일지 목록');
-    for (const v of ['달력', '프로젝트별', '하이라이트']) { await page.getByRole('button', { name: v }).click(); await page.waitForTimeout(300); await audit(page, v); }
+    for (const v of ['달력', '모아보기', '하이라이트']) { await page.getByRole('button', { name: v }).click(); await page.waitForTimeout(300); await audit(page, v); }
     await page.getByRole('button', { name: '목록' }).first().click(); await page.waitForTimeout(300);
     await page.getByRole('button', { name: '선택', exact: true }).click(); await page.getByRole('checkbox').first().click(); await audit(page, '업무일지 선택 모드');
     await page.getByRole('button', { name: '선택 모드 종료' }).click(); await page.waitForTimeout(200);
