@@ -126,8 +126,9 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
   await T('마감 경고색은 진행중일 때만: 지남=빨강, 보류·완료는 회색(경고 안 함)', async ({ page }) => {
     await openMore(page);
     await page.getByRole('button', { name: /완료한 프로젝트/ }).click();
-    const col = async name => cards(page).filter({ hasText: name }).first().getByTestId('project-deadline').evaluate(el => getComputedStyle(el).color);
-    const isRed = c => { const [r, g, b] = c.match(/\d+(\.\d+)?/g).map(Number); return r > g + 60 && r > b + 60; };
+    // Tailwind v4는 oklch 색을 쓰므로 canvas에 칠해서 rgb로 바꿔 읽음
+    const col = async name => cards(page).filter({ hasText: name }).first().getByTestId('project-deadline').evaluate(el => { const c = document.createElement('canvas'); c.width = c.height = 1; const x = c.getContext('2d'); x.fillStyle = getComputedStyle(el).color; x.fillRect(0, 0, 1, 1); return Array.from(x.getImageData(0, 0, 1, 1).data).slice(0, 3); });
+    const isRed = ([r, g, b]) => r > g + 60 && r > b + 60;
     assert.ok(isRed(await col('B설비 교체')), '진행중+지남은 빨강');
     assert.ok(!isRed(await col('D검수 끝난 건')), '완료는 빨강 아님');
     await cards(page).filter({ hasText: 'D검수 끝난 건' }).click();
@@ -423,7 +424,7 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     await page.locator('[aria-label="일지 수정"]').first().click(); await page.waitForTimeout(500);
     assert.strictEqual(await form(page).getByLabel(/^프로젝트/).inputValue(), 'pa');
     await form(page).getByLabel(/^프로젝트/).selectOption('');
-    await save(page);
+    await page.getByRole('button', { name: '수정 저장', exact: true }).click(); await settle(page);
     assert.ok(!fake.get('data/entries.json').find(x => x.id === 'a3').projectId);
     assert.strictEqual(fake.get('data/entries.json').find(x => x.id === 'a3').title, 'A제품 다공정', '업무명은 그대로');
   });
@@ -434,7 +435,7 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     await page.locator('[aria-label="일지 수정"]').first().click(); await page.waitForTimeout(500);
     assert.strictEqual(await form(page).getByLabel(/^프로젝트/).inputValue(), '');
     await form(page).getByLabel(/^프로젝트/).selectOption('pb');
-    await save(page);
+    await page.getByRole('button', { name: '수정 저장', exact: true }).click(); await settle(page);
     assert.strictEqual(fake.get('data/entries.json').find(x => x.id === 'x1').projectId, 'pb');
   });
 
@@ -642,12 +643,19 @@ const T = (name, fn, opts = {}) => test(name, fn, { seed: scenario, ...opts }); 
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     await openMore(page);
     const res = await page.evaluate(() => {
-      const lum = c => { const [r, g, b] = c.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-      const bgOf = el => { let e = el; while (e) { const c = getComputedStyle(e).backgroundColor; if (c && !/rgba?\(\d+, \d+, \d+, 0\)/.test(c) && c !== 'transparent') return c; e = e.parentElement; } return 'rgb(11,14,19)'; };
+      const rgba = c => { const cv = document.createElement('canvas'); cv.width = cv.height = 1; const x = cv.getContext('2d'); x.clearRect(0, 0, 1, 1); x.fillStyle = c; x.fillRect(0, 0, 1, 1); return Array.from(x.getImageData(0, 0, 1, 1).data); };
+      const lumRGB = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      // 배경은 투명도가 있는 색(예: emerald-500/10)을 아래 레이어 위에 합성해서 실제로 보이는 색으로 계산
+      const effBg = el => {
+        const layers = []; for (let e = el; e; e = e.parentElement) { const c = rgba(getComputedStyle(e).backgroundColor); if (c[3] > 0) { layers.push(c); if (c[3] === 255) break; } }
+        let base = [11, 14, 19]; // 페이지 배경(다크)
+        for (let i = layers.length - 1; i >= 0; i--) { const [r, g, b, a] = layers[i]; const al = a / 255; base = [r * al + base[0] * (1 - al), g * al + base[1] * (1 - al), b * al + base[2] * (1 - al)]; }
+        return base;
+      };
       const out = [];
       document.querySelectorAll('[data-testid="project-card"] span').forEach(el => {
         if (!el.className.includes('rounded-md')) return;
-        const fg = lum(getComputedStyle(el).color), bg = lum(bgOf(el));
+        const fg = lumRGB(rgba(getComputedStyle(el).color)), bg = lumRGB(effBg(el));
         const [a, b] = fg > bg ? [fg, bg] : [bg, fg];
         out.push([el.innerText, (a + 0.05) / (b + 0.05)]);
       });

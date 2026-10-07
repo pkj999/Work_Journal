@@ -257,7 +257,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.43 · 2026.10.07';
+const APP_VERSION = 'ver.44 · 2026.10.07';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -4022,7 +4022,7 @@ function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, o
                   )}
                   {selProject && (
                     <div className="mt-2">
-                      <ProjectDetail project={selProject} otherNames={projectList.filter(x => x.id !== selProject.id).map(x => x.name)}
+                      <ProjectDetail key={selProject.id} project={selProject} otherNames={projectList.filter(x => x.id !== selProject.id).map(x => x.name)}
                         onUpdate={onUpdateProject} onDelete={onDeleteProject} onWrite={onWriteForProject ? () => onWriteForProject(selProject) : null} />
                     </div>
                   )}
