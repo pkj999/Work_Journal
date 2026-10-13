@@ -56,7 +56,8 @@ const txt = async pop => (await pop.getByTestId('sticky-root').innerText()).repl
     assert.strictEqual(await pop.getByTestId('sticky-root').count(), 1);
   }, { seed: scenario });
 
-  await test('연타해도 창은 하나, 화면 내용도 하나', async ({ page, context }) => {
+  await test('연타해도 창은 하나, 화면 내용도 하나', async ({ page }) => {
+    const context = page.context();
     let n = 0; page.on('popup', () => n++);
     await page.getByRole('button', { name: '스티커 창 띄우기' }).dblclick();
     await page.waitForTimeout(800);
@@ -66,7 +67,7 @@ const txt = async pop => (await pop.getByTestId('sticky-root').innerText()).repl
   }, { seed: scenario });
 
   await test('팝업이 막혀 창을 못 열면 안내가 뜨고 버튼은 [띄우기] 그대로', async ({ page }) => {
-    await page.evaluate(() => { window.open = () => null; });
+    await page.evaluate(() => { Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true }); window.open = () => null; });
     await page.getByRole('button', { name: '스티커 창 띄우기' }).click(); await settle(page);
     assert.ok(await page.locator('text=스티커 창을 열지 못했어요').count() >= 1);
     assert.strictEqual(await page.getByRole('button', { name: '스티커 창 띄우기' }).count(), 1);
@@ -74,7 +75,7 @@ const txt = async pop => (await pop.getByTestId('sticky-root').innerText()).repl
 
   await test('Picture-in-Picture를 지원하면 그걸로 열림(요청 크기 전달), 지원 안 하면 일반 팝업', async ({ page }) => {
     await page.evaluate(() => {
-      window.documentPictureInPicture = { requestWindow: async opts => { window.__pipOpts = opts; return window.open('', 'wj-pip-test', 'popup=yes,width=300,height=400'); } };
+      Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: { requestWindow: async opts => { window.__pipOpts = opts; return window.open('', 'wj-pip-test', 'popup=yes,width=300,height=400'); } } });
     });
     const pop = await open(page);
     const opts = await page.evaluate(() => window.__pipOpts);
@@ -83,7 +84,7 @@ const txt = async pop => (await pop.getByTestId('sticky-root').innerText()).repl
   }, { seed: scenario });
 
   await test('Picture-in-Picture 요청이 실패하면 팝업으로 대신 열림', async ({ page }) => {
-    await page.evaluate(() => { window.documentPictureInPicture = { requestWindow: async () => { throw new Error('denied'); } }; });
+    await page.evaluate(() => { Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: { requestWindow: async () => { throw new Error('denied'); } } }); });
     const pop = await open(page);
     assert.strictEqual(await pop.getByTestId('sticky-root').count(), 1);
   }, { seed: scenario });
@@ -107,11 +108,11 @@ const txt = async pop => (await pop.getByTestId('sticky-root').innerText()).repl
   await test('할 일: 지난 것(오래된 순) → 오늘 → 기한 없음 → 오늘 끝낸 것. 모레 이후·예전에 끝낸 건 안 나옴', async ({ page }) => {
     const pop = await open(page);
     const r = await rows(pop);
-    assert.deepStrictEqual(r.map(x => x.split(' ')[0] + ' ' + x.split(' ')[1]), ['더 오래된 것 5일', '지난 보고서 2일', '오늘 A 오늘', '오늘 B 오늘', '기한 없는 것 기한', '오늘 끝낸 것 완료']);
+    assert.deepStrictEqual(r, ['더 오래된 것 5일 지남', '지난 보고서 2일 지남', '오늘 A 오늘', '오늘 B 오늘', '기한 없는 것 기한 없음', '오늘 끝낸 것 완료']);
     assert.ok(!(await txt(pop)).includes('모레 이후 것') && !(await txt(pop)).includes('예전에 끝낸 것'));
     assert.ok(r[0].includes('5일 지남') && r[1].includes('2일 지남'));
     assert.strictEqual(await pop.getByTestId('sticky-todo').nth(5).locator('input').isChecked(), true);
-    assert.ok((await txt(pop)).includes('4건 남음') || (await txt(pop)).includes('5건 남음'));
+    assert.ok((await txt(pop)).includes('5건 남음'), '남은 것 5건(지난 2 + 오늘 2 + 기한 없음 1)');
   }, { seed: scenario });
 
   await test('요약 칩: 지난 것 2 · 오늘 2 · 프로젝트 마감 2', async ({ page }) => {
