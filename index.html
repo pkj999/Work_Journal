@@ -176,6 +176,7 @@ const ICON_PATHS = {
   database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
   'file-spreadsheet': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+  'sticky-note': '<path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/>',
   circle: '<circle cx="12" cy="12" r="10"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
@@ -208,6 +209,7 @@ const mkIcon = n => p => <Icon name={n} {...p} />;
 const CopyIcon = mkIcon('copy');
 const Search = mkIcon('search');
 const Plus = mkIcon('plus');
+const StickyNote = mkIcon('sticky-note');
 const Download = mkIcon('download');
 const X = mkIcon('x');
 const Pencil = mkIcon('pencil');
@@ -257,7 +259,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.45 · 2026.10.07';
+const APP_VERSION = 'ver.46 · 2026.10.13';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -3700,6 +3702,258 @@ function ProjectDetail({ project, otherNames, onUpdate, onDelete, onWrite }) {
   );
 }
 
+/* ===========================================================
+   스티커 창 — PC 한쪽에 띄워 두는 작은 현황 창 (오늘 할 일 · 마감 가까운 프로젝트 · 기억할 것 · 빠른 기록 한 줄)
+   별도 창(Document Picture-in-Picture 가능하면 항상 위, 아니면 작은 팝업)의 문서에 React 포털로 그려서
+   메인 앱과 같은 상태·저장 함수를 그대로 씀. 그 창은 Tailwind 감시 밖이라 아래 STICKY_CSS(일반 CSS)로만 꾸밈.
+   메인 앱 탭이 열려 있어야 동작(탭을 닫으면 같이 닫힘).
+=========================================================== */
+const STICKY_SIZE_KEY = 'workjournal.sticky.size.v1';
+const STICKY_CSS = `
+html,body{margin:0;height:100%}
+body{font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif}
+.wjs{--bg:#fff;--fg:#1E2735;--sub:#5A6578;--line:#E3E7EE;--soft:#F3F5F9;--chip:#EEF1F6;--red:#B42318;--red-bg:#FDECEA;--amber:#92580A;--amber-bg:#FFF3DC;--green:#17703F;--btn:#1E2735;--btn-fg:#fff;--check:#3B4A63;
+  height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:var(--bg);color:var(--fg);border-top:3px solid #E8A93B;font-size:13px;line-height:1.5}
+.wjs.dark{--bg:#1A202B;--fg:#E8ECF3;--sub:#9AA6B8;--line:#2A3342;--soft:#222A38;--chip:#263042;--red:#FF9B8F;--red-bg:rgba(240,101,74,.16);--amber:#F2C46B;--amber-bg:rgba(232,169,59,.16);--green:#6FD8A0;--btn:#E8ECF3;--btn-fg:#1A202B;--check:#9AA6B8;color-scheme:dark}
+.wjs *{box-sizing:border-box}
+.wjs-scroll{flex:1;min-height:0;overflow-y:auto}
+.wjs-bar{display:flex;align-items:center;gap:6px;padding:8px 8px 6px 12px}
+.wjs-date{flex:1;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.wjs-time{font-size:11px;color:var(--sub);font-variant-numeric:tabular-nums}
+.wjs-ib{width:32px;height:32px;border:0;background:transparent;color:var(--sub);border-radius:6px;display:grid;place-items:center;cursor:pointer}
+.wjs-ib:hover{background:var(--soft);color:var(--fg)}
+.wjs-ib svg{width:15px;height:15px}
+.wjs-spin svg{animation:wjs-spin 1s linear infinite}
+@keyframes wjs-spin{to{transform:rotate(360deg)}}
+.wjs-sum{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 8px}
+.wjs-pill{font-size:11px;font-weight:600;border-radius:4px;padding:2px 7px;background:var(--chip);color:var(--sub);font-variant-numeric:tabular-nums}
+.wjs-pill.red{background:var(--red-bg);color:var(--red)}
+.wjs-pill.amber{background:var(--amber-bg);color:var(--amber)}
+.wjs-sec{border-top:1px solid var(--line);padding:8px 12px 6px}
+.wjs-sec h2{margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--sub);display:flex;justify-content:space-between}
+.wjs-sec h2 span{font-weight:500;letter-spacing:0}
+.wjs ul{list-style:none;margin:0;padding:0}
+.wjs-todo{display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:13px}
+.wjs-todo input{margin:2px 0 0;width:16px;height:16px;accent-color:var(--check);flex:none;cursor:pointer}
+.wjs-todo label{flex:1;min-width:0;cursor:pointer;overflow-wrap:anywhere}
+.wjs-todo input:checked+label{color:var(--sub);text-decoration:line-through}
+.wjs-badge{flex:none;font-size:11px;font-weight:600;border-radius:4px;padding:1px 6px;font-variant-numeric:tabular-nums;background:var(--chip);color:var(--sub)}
+.wjs-badge.red{background:var(--red-bg);color:var(--red)}
+.wjs-badge.amber{background:var(--amber-bg);color:var(--amber)}
+.wjs-more{font-size:11px;color:var(--sub);padding:2px 0 4px}
+.wjs-empty{font-size:12px;color:var(--sub);padding:4px 0}
+.wjs-clear{font-size:12px;color:var(--green);font-weight:600;padding:4px 0}
+.wjs-proj{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px}
+.wjs-proj .n{flex:1;min-width:0;overflow-wrap:anywhere}
+.wjs-proj .m{display:block;font-size:11px;color:var(--sub)}
+.wjs-memo{font-size:12px;padding:3px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.wjs-memo b{font-weight:600}
+.wjs-quick{display:flex;gap:6px;padding:8px 12px 6px;border-top:1px solid var(--line)}
+.wjs-quick input{flex:1;min-width:0;height:32px;border:1px solid var(--line);background:var(--soft);color:var(--fg);border-radius:6px;padding:0 9px;font:inherit;font-size:12px}
+.wjs-quick input::placeholder{color:var(--sub)}
+.wjs-quick button{height:32px;padding:0 12px;border:0;border-radius:6px;background:var(--btn);color:var(--btn-fg);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.wjs-quick button:disabled{opacity:.5;cursor:default}
+.wjs-foot{display:flex;justify-content:space-between;gap:8px;padding:0 12px 8px;font-size:11px;color:var(--sub)}
+.wjs-foot .ok{color:var(--green);font-weight:600}
+.wjs-foot .err{color:var(--red);font-weight:600}
+.wjs button:focus-visible,.wjs input:focus-visible{outline:2px solid #E8A93B;outline-offset:1px}
+`;
+
+// 스티커에 보여줄 것만 골라냄: 지난 것·오늘 할 일(+기한 없는 것), 오늘 끝낸 것, 마감 3일 이내이거나 지난 진행중 프로젝트, 최근 기억할 것 2개
+function buildStickyData(todos, projectList, memos) {
+  const todayKey = todayStr();
+  const over = [], due0 = [], none = [], doneToday = [];
+  (todos || []).forEach(t => {
+    if (t.done) {
+      const doneKey = t.completedAt ? dateKeyFromDate(new Date(t.completedAt)) : '';
+      if (doneKey === todayKey || t.due === todayKey) doneToday.push(t);
+      return;
+    }
+    if (!t.due) { none.push(t); return; }
+    const d = daysUntil(t.due);
+    if (d < 0) over.push(t); else if (d === 0) due0.push(t);
+  });
+  over.sort((a, b) => a.due.localeCompare(b.due));
+  none.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const projects = (projectList || []).filter(p => p.status === '진행중' && p.deadline && daysUntil(p.deadline) <= 3)
+    .sort((a, b) => a.deadline.localeCompare(b.deadline));
+  return { over, today: due0, none, doneToday, projects, memos: (memos || []).slice(0, 2) };
+}
+
+function readStickySize() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STICKY_SIZE_KEY) || 'null');
+    if (s && s.width >= 280 && s.width <= 700 && s.height >= 300 && s.height <= 1000) return { width: Math.round(s.width), height: Math.round(s.height) };
+  } catch (e) {}
+  return { width: 340, height: 560 };
+}
+function saveStickySize(win) {
+  try {
+    const w = win.innerWidth, h = win.innerHeight;
+    if (w >= 280 && h >= 300) localStorage.setItem(STICKY_SIZE_KEY, JSON.stringify({ width: w, height: h }));
+  } catch (e) {}
+}
+// 별도 창 열기. Document Picture-in-Picture(다른 창 위에 항상 떠 있음)가 되면 그걸 쓰고, 안 되면 작은 팝업 창.
+// 반드시 버튼을 누른 직후(사용자 동작)에 불러야 브라우저가 허용함. 실패하면 null.
+async function openStickyWindow() {
+  const size = readStickySize();
+  let win = null, pip = false;
+  if (window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
+    try { win = await window.documentPictureInPicture.requestWindow({ width: size.width, height: size.height }); pip = true; } catch (e) { win = null; }
+  }
+  if (!win) {
+    const left = Math.max(0, (window.screen.availWidth || 1280) - size.width - 24);
+    try { win = window.open('', 'wj-sticky', `popup=yes,width=${size.width},height=${size.height},left=${left},top=80`); } catch (e) { win = null; }
+  }
+  if (!win) return null;
+  const doc = win.document;
+  doc.title = '업무일지 스티커';
+  doc.documentElement.lang = 'ko';
+  doc.body.innerHTML = '';
+  if (!doc.querySelector('meta[name=viewport]')) { const m = doc.createElement('meta'); m.name = 'viewport'; m.content = 'width=device-width, initial-scale=1'; doc.head.appendChild(m); }
+  const st = doc.createElement('style'); st.textContent = STICKY_CSS; doc.head.appendChild(st);
+  const container = doc.createElement('div'); container.style.height = '100%'; doc.body.appendChild(container);
+  return { win, pip, container };
+}
+
+function StickyWidget({ win, dark, todos, projectList, memos, lastSynced, loading, offline, onRefresh, onToggleTodo, onAddNote }) {
+  const [, setTick] = useState(0);        // 30초마다 다시 그려서 시계와 "오늘" 기준을 갱신(자정이 지나도 맞게)
+  const [opt, setOpt] = useState({});      // 체크 직후 저장이 끝날 때까지 보여줄 값 { 할일id: 체크됐는지 }
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState(null); // { kind: 'ok'|'err', text }
+  const refreshRef = useRef(onRefresh); refreshRef.current = onRefresh;
+  const loadingRef = useRef(loading); loadingRef.current = loading;
+  const aliveRef = useRef(true);
+  const statusTimerRef = useRef(null);
+  useEffect(() => {
+    aliveRef.current = true;
+    // 시계·자동 새로고침은 스티커 창 자신의 타이머로(메인 탭이 가려져 있어도 느려지지 않게)
+    const t1 = win.setInterval(() => setTick(n => n + 1), 30000);
+    const t2 = win.setInterval(() => { if (!loadingRef.current) refreshRef.current(); }, 5 * 60 * 1000);
+    return () => { aliveRef.current = false; try { win.clearInterval(t1); win.clearInterval(t2); if (statusTimerRef.current) win.clearTimeout(statusTimerRef.current); } catch (e) {} };
+  }, [win]);
+
+  const flash = (kind, text) => {
+    setStatus({ kind, text });
+    try { if (statusTimerRef.current) win.clearTimeout(statusTimerRef.current); statusTimerRef.current = win.setTimeout(() => { if (aliveRef.current) setStatus(null); }, 3500); } catch (e) {}
+  };
+  const data = buildStickyData(todos, projectList, memos);
+  const pending = [...data.over, ...data.today, ...data.none];
+  const shown = pending.slice(0, 8);
+  const hiddenCount = pending.length - shown.length;
+  const doneShown = data.doneToday.slice(0, 3);
+  const alertCount = data.over.length + data.today.length;
+  useEffect(() => { try { win.document.title = `${alertCount ? `(${alertCount}) ` : ''}업무일지 스티커`; } catch (e) {} }, [win, alertCount]);
+
+  const now = new Date();
+  const toggle = async t => {
+    if (t.id in opt) return; // 저장 중인 건 다시 안 누르게
+    const next = !t.done;
+    setOpt(o => ({ ...o, [t.id]: next }));
+    const ok = await onToggleTodo(t);
+    if (!aliveRef.current) return;
+    setOpt(o => { const n = { ...o }; delete n[t.id]; return n; });
+    if (ok === false) flash('err', '저장하지 못했어요. 다시 눌러 주세요.');
+  };
+  const submit = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true); setStatus(null);
+    const ok = await onAddNote(text);
+    if (!aliveRef.current) return;
+    setSending(false);
+    if (ok) { setDraft(''); flash('ok', '기록했어요.'); } else flash('err', '저장하지 못했어요. 다시 눌러 주세요.');
+  };
+  const badge = t => {
+    if (!t.due) return <span className="wjs-badge">기한 없음</span>;
+    const d = daysUntil(t.due);
+    if (d < 0) return <span className="wjs-badge red">{-d}일 지남</span>;
+    return <span className="wjs-badge amber">오늘</span>;
+  };
+  const row = (t, done) => {
+    const checked = t.id in opt ? opt[t.id] : !!t.done;
+    return (
+      <li key={t.id} className="wjs-todo" data-testid="sticky-todo">
+        <input type="checkbox" id={`sticky-t-${t.id}`} checked={checked} onChange={() => toggle(t)} />
+        <label htmlFor={`sticky-t-${t.id}`}>{t.text}</label>
+        {done ? <span className="wjs-badge">완료</span> : badge(t)}
+      </li>
+    );
+  };
+  const footLeft = offline ? '오프라인이에요 · 저장된 내용' : lastSynced ? `마지막 동기화 ${fmtTime(lastSynced)}` : '';
+
+  return (
+    <div className={`wjs${dark ? ' dark' : ''}`} data-testid="sticky-root">
+      <div className="wjs-scroll">
+        <div className="wjs-bar">
+          <span className="wjs-date" data-testid="sticky-date">{fmtDateShort(todayStr())}</span>
+          <span className="wjs-time">{fmtTime(now.getTime())}</span>
+          <button type="button" className={`wjs-ib${loading ? ' wjs-spin' : ''}`} aria-label="새로고침" title="새로고침" onClick={onRefresh} disabled={loading}><RefreshCw size={15} /></button>
+        </div>
+        {(data.over.length > 0 || data.today.length > 0 || data.projects.length > 0) && (
+          <div className="wjs-sum">
+            {data.over.length > 0 && <span className="wjs-pill red">지난 것 {data.over.length}</span>}
+            {data.today.length > 0 && <span className="wjs-pill amber">오늘 {data.today.length}</span>}
+            {data.projects.length > 0 && <span className="wjs-pill">프로젝트 마감 {data.projects.length}</span>}
+          </div>
+        )}
+
+        <div className="wjs-sec">
+          <h2>오늘 할 일 <span>{pending.length ? `${pending.length}건 남음` : ''}</span></h2>
+          {shown.length > 0 || doneShown.length > 0 ? (
+            <ul>
+              {shown.map(t => row(t, false))}
+              {doneShown.map(t => row(t, true))}
+            </ul>
+          ) : null}
+          {hiddenCount > 0 && <div className="wjs-more">외 {hiddenCount}건이 더 있어요. 업무일지 앱의 할 일 탭에서 볼 수 있어요.</div>}
+          {pending.length === 0 && (doneShown.length > 0
+            ? <div className="wjs-clear">오늘 할 일을 모두 끝냈어요.</div>
+            : <div className="wjs-empty">남은 할 일이 없어요.</div>)}
+        </div>
+
+        {data.projects.length > 0 && (
+          <div className="wjs-sec">
+            <h2>마감이 가까운 프로젝트</h2>
+            {data.projects.slice(0, 3).map(p => {
+              const dl = deadlineInfo(p);
+              return (
+                <div key={p.id} className="wjs-proj" data-testid="sticky-project">
+                  <div className="n">{p.name}<span className="m">{p.last ? `마지막 기록 ${fmtDateShort(p.last)}` : '아직 기록 없음'}</span></div>
+                  {dl && <span className={`wjs-badge${dl.overdue ? ' red' : ' amber'}`}>{dl.label}</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {data.memos.length > 0 && (
+          <div className="wjs-sec">
+            <h2>기억할 것</h2>
+            {data.memos.map(m => (
+              <div key={m.id} className="wjs-memo" data-testid="sticky-memo">
+                {m.tags && m.tags[0] ? <b>#{String(m.tags[0]).replace(/^#/, '')} </b> : null}{m.text}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="wjs-quick">
+        <input type="text" id="sticky-quick" value={draft} placeholder="빠른 기록 한 줄…" aria-label="빠른 기록 한 줄"
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); } }} />
+        <button type="button" onClick={submit} disabled={sending || !draft.trim()}>{sending ? '저장 중…' : '추가'}</button>
+      </div>
+      <div className="wjs-foot" aria-live="polite">
+        <span>{footLeft}</span>
+        {status && <span className={status.kind} data-testid="sticky-status">{status.text}</span>}
+      </div>
+    </div>
+  );
+}
+
 function EntriesTab({ cfg, entries, notes, categories, categoryMap, onOpenNew, onEdit, onDelete, onToggleFavorite, onBulkDelete, onBulkFavorite, onBulkField, onRestore, onPermanentDelete, onViewSource, onPreviewEntry, hasArchives, archivesLoaded, archiveLoading, onLoadArchives, projectRecords, onCreateProject, onUpdateProject, onDeleteProject, onWriteForProject, onPromoteTitle }) {
   const [query, setQuery] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
@@ -4363,6 +4617,8 @@ function App() {
   const [memos, setMemos] = useState([]);
   const [memosSha, setMemosSha] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [sticky, setSticky] = useState(null); // 스티커 창: { win, pip, container } — 닫혀 있으면 null
+  const stickyOpeningRef = useRef(false);
   const [projectsSha, setProjectsSha] = useState(null);
 
   // entries.json/quick-notes.json/todos.json/memos.json에 대한 쓰기 요청을 한 번에 하나씩만 실행되도록 줄 세우는 큐
@@ -5063,7 +5319,7 @@ function App() {
   };
 
   /* ---------- 9. 빠른 기록(퀵노트) 핸들러 ---------- */
-  const handleAddNote = async (text, files) => {
+  const handleAddNote = async (text, files, opts) => {
     setUploading(true);
     try {
       const imageRefs = await uploadNewImages(cfg, files, '빠른 기록 사진 추가');
@@ -5073,8 +5329,11 @@ function App() {
       setQuickNotes(merged);
       vibrate(20);
       showToast('기록했어요.');
+      return true;
     } catch (err) {
-      showToast('저장 실패: ' + err.message, () => handleAddNote(text, files));
+      // 스티커 창에서 넣은 건 그 창에 실패 안내가 뜨고 직접 다시 누르게 하므로, 여기서 다시 시도 버튼을 또 주지 않음(이중 저장 방지)
+      showToast('저장 실패: ' + err.message, opts && opts.fromSticky ? undefined : () => handleAddNote(text, files));
+      return false;
     } finally {
       setUploading(false);
     }
@@ -5389,8 +5648,10 @@ function App() {
       const now = Date.now();
       const merged = await writeTodos(current => current.map(t => t.id === todo.id ? { ...t, done: !t.done, completedAt: !t.done ? now : null, updatedAt: now } : t), '할 일 상태 변경');
       setTodos(merged);
+      return true;
     } catch (err) {
       showToast('저장 실패: ' + err.message, () => handleToggleTodo(todo));
+      return false;
     }
   };
   const handleDeleteTodo = todo => {
@@ -5614,6 +5875,28 @@ function App() {
       onClick: () => handleUpdateProject(project.id, { deleted: false, deletedAt: null }),
     });
   };
+  /* ---------- 12-3. 스티커 창 ---------- */
+  const stickyProjectList = useMemo(() => buildProjectList(projects, entries), [projects, entries]);
+  const toggleSticky = async () => {
+    if (sticky) { try { sticky.win.close(); } catch (e) {} setSticky(null); return; }
+    if (stickyOpeningRef.current) return; // 연타로 창이 여러 개 열리지 않게
+    stickyOpeningRef.current = true;
+    try {
+      const opened = await openStickyWindow();
+      if (!opened) { showToast('스티커 창을 열지 못했어요. 브라우저에서 팝업을 허용해 주세요.'); return; }
+      setSticky(opened);
+    } finally { stickyOpeningRef.current = false; }
+  };
+  useEffect(() => {
+    if (!sticky) return;
+    const w = sticky.win;
+    const onGone = () => { saveStickySize(w); setSticky(cur => (cur && cur.win === w ? null : cur)); };
+    w.addEventListener('pagehide', onGone);
+    const poll = setInterval(() => { let gone = false; try { gone = w.closed; } catch (e) { gone = true; } if (gone) onGone(); }, 1500);
+    const closeWithMain = () => { try { w.close(); } catch (e) {} };
+    window.addEventListener('pagehide', closeWithMain);
+    return () => { try { w.removeEventListener('pagehide', onGone); } catch (e) {} clearInterval(poll); window.removeEventListener('pagehide', closeWithMain); };
+  }, [sticky]);
   const projectMap = useMemo(() => { const m = {}; projects.forEach(x => { if (!x.deleted) m[x.id] = x; }); return m; }, [projects]);
 
   // 옛 기록 정리: 같은 업무명의 일지(프로젝트에 연결 안 된 것)를 한 번에 새 프로젝트에 묶음. 일지 파일 저장 1번, [실행취소]로 원래대로.
@@ -5795,6 +6078,9 @@ function App() {
           <header className="flex items-center justify-between mb-4">
             <Logo />
             <div className="flex items-center gap-1.5">
+              <span className="hidden md:inline-flex">
+                <IconButton label={sticky ? '스티커 창 닫기' : '스티커 창 띄우기'} onClick={toggleSticky} tone={sticky ? 'star-on' : 'default'}><StickyNote size={16} /></IconButton>
+              </span>
               <IconButton label="새로고침" onClick={loadAll} disabled={loading}><RefreshCw size={16} className={loading ? 'wj-spin' : ''} /></IconButton>
               <IconButton label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'} onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}>
                 {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
@@ -5907,6 +6193,11 @@ function App() {
       <NotePreviewModal open={!!previewNote} note={previewNote} cfg={cfg} onClose={() => setPreviewNoteId(null)} onEdit={setEditingNote} onDelete={handleDeleteNoteFromPreview} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} />
       <Toast toast={toast} onAction={() => { if (toast && toast.action) toast.action.onClick(); }} />
       <GlobalLightbox />
+      {sticky && ReactDOM.createPortal(
+        <StickyWidget win={sticky.win} dark={theme === 'dark'} todos={visibleTodos} projectList={stickyProjectList} memos={visibleMemos}
+          lastSynced={lastSynced} loading={loading} offline={offline} onRefresh={loadAll} onToggleTodo={handleToggleTodo}
+          onAddNote={text => handleAddNote(text, [], { fromSticky: true })} />,
+        sticky.container)}
     </div>
     </ProjectsCtx.Provider>
   );
