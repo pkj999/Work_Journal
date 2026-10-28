@@ -1988,7 +1988,7 @@ function MergeNotesSheet({ open, notes, text, onClose, onNew, onAppend }) {
   useBackButtonClose(open, onClose);
   if (!open || !notes || notes.length === 0) return null;
   const photos = mergedNoteImages(notes).length;
-  const btn = 'w-full min-h-11 px-4 py-2.5 rounded-lg text-[14px] font-semibold active:scale-[0.98] transition-transform';
+  const btn = 'w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold active:scale-[0.98] transition-transform';
   return (
     <div className="fixed inset-0 z-[66] flex items-end sm:items-center justify-center p-4 overflow-y-auto" role="dialog" aria-label="빠른 기록 합치기">
       <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
@@ -2032,7 +2032,7 @@ function AppendToEntrySheet({ open, notes, text, entries, projectMap, onClose, o
   const confirm = async () => { if (busy || !picked) return; setBusy(true); try { await onConfirm(picked); } finally { setBusy(false); } };
   const row = ({ e, score }) => (
     <button key={e.id} type="button" onClick={() => setPicked(e)} data-testid="append-candidate"
-      className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2.5 min-h-12 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900/60">
+      className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2.5 min-h-[48px] hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900/60">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 break-words min-w-0">{e.title || '(제목 없음)'}</span>
         {score > 0 && <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300">추천</span>}
@@ -2056,9 +2056,9 @@ function AppendToEntrySheet({ open, notes, text, entries, projectMap, onClose, o
             <pre data-testid="append-preview" className="min-h-0 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[13px] font-sans leading-relaxed text-slate-700 dark:text-slate-200">{text}</pre>
             <div className="mt-3.5 flex flex-col gap-2 shrink-0">
               <button type="button" onClick={confirm} disabled={busy}
-                className="w-full min-h-11 px-4 py-2.5 rounded-lg text-[14px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 disabled:opacity-50">{busy ? '덧붙이는 중…' : '덧붙이기'}</button>
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 disabled:opacity-50">{busy ? '덧붙이는 중…' : '덧붙이기'}</button>
               <button type="button" onClick={() => setPicked(null)} disabled={busy}
-                className="w-full min-h-11 px-4 py-2.5 rounded-lg text-[14px] font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">다른 일지 고르기</button>
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">다른 일지 고르기</button>
             </div>
           </React.Fragment>
         ) : (
@@ -2073,7 +2073,7 @@ function AppendToEntrySheet({ open, notes, text, entries, projectMap, onClose, o
               {recommended.length === 0 && others.length === 0 && <div className="text-center py-8 text-[13px] text-slate-500 dark:text-slate-400">{query ? '찾는 일지가 없어요.' : '덧붙일 수 있는 일지가 없어요.'}</div>}
             </div>
             <div className="mt-3 shrink-0">
-              <button type="button" onClick={onBack} className="w-full min-h-11 px-4 py-2.5 rounded-lg text-[14px] font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">뒤로</button>
+              <button type="button" onClick={onBack} className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">뒤로</button>
             </div>
           </React.Fragment>
         )}

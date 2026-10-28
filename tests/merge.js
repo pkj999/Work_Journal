@@ -33,7 +33,7 @@ const mergeBtn = page => page.getByRole('button', { name: /일지로 합치기/ 
 const putsOf = (fake, path) => fake.puts.filter(x => x.path === path);
 const form = page => page.locator('form').first();
 const OVERVIEW = '예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등';
-const norm = s => s.replace(/[ \t]+/g, ' ').trim();
+const norm = s => s.replace(/\s+/g, ' ').trim();
 
 (async () => {
   console.log('\n[합치기: 선택과 시트]');
