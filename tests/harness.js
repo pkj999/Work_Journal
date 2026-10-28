@@ -49,6 +49,7 @@ class FakeGitHub {
     this.files = {}; // 'repo/path' -> { text, sha }
     this.counter = 1;
     this.puts = [];
+    this.deletes = [];     // 삭제된 파일 경로들(사진 정리 확인용)
     this.delayMs = 0;      // PUT 응답 지연(느린 네트워크 흉내)
     this.conflicts = 0;    // 409를 돌려준 횟수 — stale sha 사용 여부 확인용        // 기록: {path, message, count}
     this.failNext = [];    // [{path, status}] — 다음 PUT을 실패시킴
@@ -93,6 +94,11 @@ class FakeGitHub {
       this.files[key] = { text, sha: this.newSha() };
       this.puts.push({ repo, path: p, message: body.message, count: (() => { try { return JSON.parse(text).length; } catch (e) { return null; } })() });
       return json(200, { content: { sha: this.files[key].sha } });
+    }
+    if (req.method() === 'DELETE') {
+      if (!this.files[key]) return json(404, { message: 'Not Found' });
+      delete this.files[key]; this.deletes.push({ repo, path: p });
+      return json(200, {});
     }
     return json(405, { message: 'no' });
   }
