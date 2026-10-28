@@ -298,14 +298,14 @@ const norm = s => s.replace(/\s+/g, ' ').trim();
     await page.setViewportSize({ width: 390, height: 800 });
     await openSelect(page);
     await pick(page, '지게차'); await pick(page, '출입 전');
-    await mergeBtn(page).click();
+    await mergeBtn(page).click(); await page.waitForTimeout(500); // 열리는 애니메이션(크기 97%에서 시작)이 끝난 뒤에 잼
     for (const n of ['새 일지로 만들기', '기존 일지에 덧붙이기']) {
       const b = await page.getByRole('button', { name: n }).boundingBox();
       assert.ok(b.height >= 44 && b.x >= 0 && b.x + b.width <= 390, `${n} ${JSON.stringify(b)}`);
     }
     const w = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
     assert.ok(w.sw <= w.cw);
-    await page.getByRole('button', { name: '기존 일지에 덧붙이기' }).click(); await page.waitForTimeout(300);
+    await page.getByRole('button', { name: '기존 일지에 덧붙이기' }).click(); await page.waitForTimeout(600);
     const r = await page.getByTestId('append-candidate').first().boundingBox();
     assert.ok(r.x >= 0 && r.x + r.width <= 390 && r.height >= 44, JSON.stringify(r));
   }, { seed: scenario });
