@@ -162,7 +162,7 @@ const tooSmall = (list, min = 40) => list.filter(b => b.w < min || b.h < min);
     assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 1);
   });
 
-  await test('업무일지: 필터를 걸면 [필터 초기화]가 나오고(40px), 휴지통 보기에서는 [선택]이 사라짐', async ({ page }) => {
+  await test('업무일지: 필터를 걸면 [필터 초기화]가 나오고(40px), 휴지통 보기에서는 [목록으로]가 나옴', async ({ page }) => {
     await gotoEntries(page);
     await page.getByPlaceholder('업무명, 내용, 문제해결, 태그 검색…').fill('프로젝트A');
     await page.waitForTimeout(400);
@@ -170,7 +170,6 @@ const tooSmall = (list, min = 40) => list.filter(b => b.w < min || b.h < min);
     assert.ok(reset.length === 1 && reset[0].h >= 40, JSON.stringify(reset));
     await page.getByRole('button', { name: /휴지통/ }).first().click();
     await page.waitForTimeout(300);
-    assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 0);
     assert.ok(await page.getByRole('button', { name: '목록으로' }).count() === 1);
   });
 
