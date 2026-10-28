@@ -220,13 +220,12 @@ const selectedText = async page => (await bar(page).locator('[aria-live]').inner
     assert.ok(await page.getByRole('button', { name: '선택', exact: true }).count() === 1);
   });
 
-  await test('휴지통 화면으로 가면 선택 모드 종료 + 휴지통에는 "선택" 버튼 없음', async ({ page }) => {
+  await test('휴지통 화면으로 가면 목록의 선택 모드는 종료됨(휴지통에서는 새로 선택을 시작해야 함 — trashbulk.js 참고)', async ({ page }) => {
     await gotoEntries(page);
     await startSelect(page);
     await page.getByRole('button', { name: /휴지통/ }).first().click();
     await page.waitForTimeout(300);
     assert.strictEqual(await bar(page).count(), 0);
-    assert.strictEqual(await page.getByRole('button', { name: '선택', exact: true }).count(), 0);
   });
 
   await test('다른 탭에 갔다 오면 선택 모드는 꺼져 있음', async ({ page }) => {
