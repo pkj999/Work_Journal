@@ -259,7 +259,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.46 · 2026.10.13';
+const APP_VERSION = 'ver.47 · 2026.10.28';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -1940,9 +1940,151 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
 /* 빠른 기록을 "바로 수정"이 아니라 먼저 내용만 확인할 수 있게 보여주는 팝업.
    QuickNoteCard를 그대로 재사용해서 만들었기 때문에, 그 안에 이미 있는 수정 아이콘을 누르면
    그때 이 팝업을 닫고 실제 수정 화면(NoteEditModal)을 연다. 업무일지 카드의 "원본 빠른 기록 보기"에서 사용. */
-function NotePreviewModal({ open, note, cfg, onClose, onEdit, onDelete, onPromote, onViewEntry }) {
+/* ===========================================================
+   빠른 기록 합치기 — 빠른 기록 여러 건을 새 일지 하나로 합치거나, 이미 있는 일지 개요 뒤에 덧붙임.
+   원본 빠른 기록은 지워지지 않고 '정리됨'이 되어 일지에서 다시 볼 수 있음.
+=========================================================== */
+// 시간순(오래된 것 위)으로 한 줄씩 이어 붙인 글. 오늘 쓴 것만이면 '14:32', 다른 날이 섞이면 '2026.10.27 (화) 14:32'
+function buildMergedNoteText(notes) {
+  const list = [...(notes || [])].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const days = new Set(list.map(n => dateKeyFromDate(new Date(n.createdAt || 0))));
+  const todayOnly = days.size === 1 && days.has(todayStr());
+  return list.map(n => {
+    const stamp = todayOnly ? fmtTime(n.createdAt) : `${fmtDateShort(dateKeyFromDate(new Date(n.createdAt || 0)))} ${fmtTime(n.createdAt)}`;
+    const body = (n.text || '').trim() || `(사진 ${(n.imageRefs || []).length}장)`;
+    return `${stamp}  ${body}`;
+  }).join('\n');
+}
+function mergedNoteImages(notes) {
+  const seen = new Set(), out = [];
+  (notes || []).forEach(n => (n.imageRefs || []).forEach(r => { const k = JSON.stringify(r); if (!seen.has(k)) { seen.add(k); out.push(r); } }));
+  return out;
+}
+// 글 안에 프로젝트 이름이나 그 프로젝트 일지에 자주 붙은 태그가 들어 있으면 후보로 추천(최대 3개, 진행 중인 것 먼저)
+function suggestProjects(text, projectList, hints) {
+  const key = tagKey(text);
+  if (!key) return [];
+  return (projectList || []).map(p => {
+    let score = 0;
+    const nk = tagKey(p.name);
+    if (nk.length >= 2 && key.includes(nk)) score += 3;
+    ((hints && hints[p.id]) || []).forEach(tk => { if (tk.length >= 2 && key.includes(tk)) score += 1; });
+    return { p, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || (a.p.status === '완료') - (b.p.status === '완료'))
+    .slice(0, 3).map(x => x.p);
+}
+function scoreEntryForText(entry, text, projName) {
+  const key = tagKey(text);
+  if (!key) return 0;
+  let s = 0;
+  const t = tagKey(entry.title); if (t.length >= 2 && key.includes(t)) s += 3;
+  const pn = tagKey(projName); if (pn.length >= 2 && key.includes(pn)) s += 2;
+  (entry.tags || []).forEach(g => { const k = tagKey(g); if (k.length >= 2 && key.includes(k)) s += 1; });
+  return s;
+}
+
+function MergeNotesSheet({ open, notes, text, onClose, onNew, onAppend }) {
   useBackButtonClose(open, onClose);
-  if (!open || !note) return null;
+  if (!open || !notes || notes.length === 0) return null;
+  const photos = mergedNoteImages(notes).length;
+  const btn = 'w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold active:scale-[0.98] transition-transform';
+  return (
+    <div className="fixed inset-0 z-[66] flex items-end sm:items-center justify-center p-4 overflow-y-auto" role="dialog" aria-label="빠른 기록 합치기">
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative wj-modal-pop w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">빠른 기록 {notes.length}건 합치기</h2>
+          <IconButton label="닫기" onClick={onClose} className="-mr-2"><X size={16} /></IconButton>
+        </div>
+        <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">시간 순서대로 이어 붙여요. 원본 빠른 기록은 지워지지 않고 '정리됨'으로 남아요.</p>
+        <pre data-testid="merge-preview" className="max-h-52 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[13px] font-sans leading-relaxed text-slate-700 dark:text-slate-200">{text}</pre>
+        {photos > 0 && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">사진 {photos}장도 함께 가져가요.</p>}
+        <div className="mt-3.5 flex flex-col gap-2">
+          <button type="button" onClick={onNew} className={`${btn} bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300`}>새 일지로 만들기</button>
+          <button type="button" onClick={onAppend} className={`${btn} border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800`}>기존 일지에 덧붙이기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppendToEntrySheet({ open, notes, text, entries, projectMap, onClose, onBack, onConfirm }) {
+  useBackButtonClose(open, onClose);
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setQuery(''); setPicked(null); setBusy(false); } }, [open]);
+  const { recommended, others } = useMemo(() => {
+    const cands = (entries || []).filter(e => !e.deleted && !e._readonly)
+      .map(e => ({ e, score: scoreEntryForText(e, text, (projectMap[e.projectId] || {}).name) }));
+    const byDate = (a, b) => (b.e.date || '').localeCompare(a.e.date || '') || (b.e.createdAt || 0) - (a.e.createdAt || 0);
+    const q = tagKey(query);
+    if (q) {
+      const hit = cands.filter(({ e }) => tagKey([e.title, (projectMap[e.projectId] || {}).name, (e.tags || []).join(' '), (e.overview || '').slice(0, 200)].join(' ')).includes(q));
+      return { recommended: [], others: hit.sort(byDate).slice(0, 30) };
+    }
+    const rec = cands.filter(c => c.score > 0).sort((a, b) => b.score - a.score || byDate(a, b)).slice(0, 3);
+    const recIds = new Set(rec.map(c => c.e.id));
+    return { recommended: rec, others: cands.filter(c => !recIds.has(c.e.id)).sort(byDate).slice(0, 30) };
+  }, [entries, text, projectMap, query]);
+  if (!open) return null;
+  const confirm = async () => { if (busy || !picked) return; setBusy(true); try { await onConfirm(picked); } finally { setBusy(false); } };
+  const row = ({ e, score }) => (
+    <button key={e.id} type="button" onClick={() => setPicked(e)} data-testid="append-candidate"
+      className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2.5 min-h-[48px] hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900/60">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 break-words min-w-0">{e.title || '(제목 없음)'}</span>
+        {score > 0 && <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300">추천</span>}
+      </div>
+      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{fmtDateShort(e.date)}{projectMap[e.projectId] ? ` · ${projectMap[e.projectId].name}` : ''}</div>
+    </button>
+  );
+  return (
+    <div className="fixed inset-0 z-[66] flex items-end sm:items-center justify-center p-4 overflow-y-auto" role="dialog" aria-label="기존 일지에 덧붙이기">
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative wj-modal-pop w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl p-4 max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between mb-1 shrink-0">
+          <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{picked ? '이 일지에 덧붙일까요?' : '어느 일지에 덧붙일까요?'}</h2>
+          <IconButton label="닫기" onClick={onClose} className="-mr-2"><X size={16} /></IconButton>
+        </div>
+        {picked ? (
+          <React.Fragment>
+            <div className="text-[13px] font-medium text-slate-800 dark:text-slate-100 break-words">{picked.title || '(제목 없음)'}</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">{fmtDateShort(picked.date)}{projectMap[picked.projectId] ? ` · ${projectMap[picked.projectId].name}` : ''}</div>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-1.5 leading-relaxed">개요 끝에 아래 내용을 덧붙여요. 원래 내용은 그대로예요.</p>
+            <pre data-testid="append-preview" className="min-h-0 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[13px] font-sans leading-relaxed text-slate-700 dark:text-slate-200">{text}</pre>
+            <div className="mt-3.5 flex flex-col gap-2 shrink-0">
+              <button type="button" onClick={confirm} disabled={busy}
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-700 dark:hover:bg-slate-300 disabled:opacity-50">{busy ? '덧붙이는 중…' : '덧붙이기'}</button>
+              <button type="button" onClick={() => setPicked(null)} disabled={busy}
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">다른 일지 고르기</button>
+            </div>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <input value={query} onChange={e => setQuery(e.target.value)} aria-label="일지 찾기" placeholder="업무명·프로젝트·태그로 찾기"
+              className="w-full my-2 px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 shrink-0" />
+            <div className="min-h-0 overflow-y-auto space-y-2 pr-0.5">
+              {recommended.length > 0 && <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">내용이 비슷한 일지</div>}
+              {recommended.map(row)}
+              {recommended.length > 0 && others.length > 0 && <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 pt-1">최근 일지</div>}
+              {others.map(row)}
+              {recommended.length === 0 && others.length === 0 && <div className="text-center py-8 text-[13px] text-slate-500 dark:text-slate-400">{query ? '찾는 일지가 없어요.' : '덧붙일 수 있는 일지가 없어요.'}</div>}
+            </div>
+            <div className="mt-3 shrink-0">
+              <button type="button" onClick={onBack} className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-[14px] font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">뒤로</button>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotePreviewModal({ open, notes, cfg, onClose, onEdit, onDelete, onPromote, onViewEntry }) {
+  useBackButtonClose(open, onClose);
+  if (!open || !notes || notes.length === 0) return null;
   return (
     <div className="fixed inset-0 z-[68] flex items-start sm:items-center justify-center p-4 overflow-y-auto">
       <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
@@ -1950,17 +2092,21 @@ function NotePreviewModal({ open, note, cfg, onClose, onEdit, onDelete, onPromot
         <div className="flex justify-end mb-2">
           <IconButton label="닫기" tone="on-dark" onClick={onClose}><X size={16} /></IconButton>
         </div>
-        <QuickNoteCard cfg={cfg} note={note} leaving={false}
-          onEdit={() => { onClose(); onEdit(note); }}
-          onDelete={() => { onClose(); onDelete(note); }}
-          onPromote={() => { onClose(); onPromote(note); }}
-          onViewEntry={() => { onClose(); onViewEntry(note); }} />
+        <div className="space-y-2.5">
+          {notes.map(note => (
+            <QuickNoteCard key={note.id} cfg={cfg} note={note} leaving={false}
+              onEdit={() => { onClose(); onEdit(note); }}
+              onDelete={() => { onClose(); onDelete(note); }}
+              onPromote={() => { onClose(); onPromote(note); }}
+              onViewEntry={() => { onClose(); onViewEntry(note); }} />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, onDelete, onBulkDelete, onRestore, onPermanentDelete, onEditSave, onPromote, onViewEntry, uploading, savingEdit, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
+function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, onDelete, onBulkDelete, onRestore, onPermanentDelete, onEditSave, onPromote, onViewEntry, onMerge, mergeDoneKey, uploading, savingEdit, hasArchives, archivesLoaded, archiveLoading, onLoadArchives }) {
   // 빠른 기록 입력창 임시저장 — 사진 파일은 로컬 저장이 안 돼서 텍스트만 대상으로 함
   const QUICK_DRAFT_KEY = 'wj-draft-quick-note';
   const [text, setText] = useState(() => { try { return localStorage.getItem(QUICK_DRAFT_KEY) || ''; } catch (e) { return ''; } });
@@ -2018,6 +2164,10 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
   useEffect(() => { if (sel.active && showTrash) sel.stop(); }, [showTrash, sel.active]);
   const selectedIds = selectableIds.filter(id => sel.ids.has(id));
   const toggleAllSelection = () => sel.setAll(selectedIds.length >= selectableIds.length ? [] : selectableIds);
+  // 합치기: 아직 정리 안 된(정리됨 아님) 활성 레포 기록만 대상
+  const mergeable = useMemo(() => selectedIds.map(id => notes.find(n => n.id === id)).filter(n => n && !n.processed && !n.deleted && !n._readonly), [selectedIds, notes]);
+  const skippedProcessed = selectedIds.length - mergeable.length;
+  useEffect(() => { if (mergeDoneKey > 0 && sel.active) sel.stop(); }, [mergeDoneKey]);
   const noteLabel = n => `빠른 기록 선택: ${stripEmph(n.text || '사진 기록').replace(/\s+/g, ' ').slice(0, 24)}`;
 
 
@@ -2153,7 +2303,9 @@ function QuickCaptureTab({ cfg, notes, phrases, editingNote, onEditNote, onAdd, 
 
       {sel.active && !showTrash && (
         <SelectionBar count={selectedIds.length} total={selectableIds.length} onToggleAll={toggleAllSelection} onCancel={sel.stop} busy={bulkBusy}
-          hint={readonlyVisible > 0 ? `보관 레포 기록 ${readonlyVisible}건은 선택할 수 없어요.` : null}>
+          hint={[readonlyVisible > 0 ? `보관 레포 기록 ${readonlyVisible}건은 선택할 수 없어요.` : '', skippedProcessed > 0 ? `이미 정리된 기록 ${skippedProcessed}건은 합치기에서 빠져요.` : ''].filter(Boolean).join(' ') || null}>
+          <BulkButton icon={Link2} label={`일지로 합치기${mergeable.length ? ` (${mergeable.length})` : ''}`} disabled={bulkBusy || mergeable.length === 0 || !onMerge}
+            onClick={() => onMerge(mergeable)} />
           <BulkButton icon={TrashIcon} label="휴지통으로" danger disabled={bulkBusy || selectedIds.length === 0}
             onClick={() => runBulk(() => onBulkDelete(selectedIds))} />
         </SelectionBar>
@@ -3041,7 +3193,7 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
         {entry.sourceNoteIds && entry.sourceNoteIds.length > 0 && (
           <button onClick={() => onViewSource(entry)}
             className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 active:scale-95 transition-transform">
-            <Inbox size={11} /> 원본 빠른 기록 보기
+            <Inbox size={11} /> {entry.sourceNoteIds.length > 1 ? `원본 빠른 기록 ${entry.sourceNoteIds.length}건 보기` : '원본 빠른 기록 보기'}
           </button>
         )}
       </div>
@@ -3076,7 +3228,7 @@ function EntryPreviewModal({ open, entry, cfg, categoryMap, onClose, onEdit, onD
 const EMPTY_FORM = { date: todayStr(), projectId: '', title: '', category: '개발', importance: '중', bullets: [''], overview: '', problem: '', solution: '', lesson: '', tags: [], links: [], dataPath: '' };
 
 // 일지를 프로젝트에 연결하는 선택칸. 비워두면 "현장 기록"(프로젝트 없는 기록). 목록에 없으면 여기서 바로 새 프로젝트를 만듦.
-function ProjectPicker({ value, projectList, onChange, onCreateProject }) {
+function ProjectPicker({ value, projectList, onChange, onCreateProject, suggestions }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -3103,6 +3255,12 @@ function ProjectPicker({ value, projectList, onChange, onCreateProject }) {
         {projectList.map(x => <option key={x.id} value={x.id}>{x.name}{x.status !== '진행중' ? ` (${x.status})` : ''}</option>)}
         <option value="__new__">+ 새 프로젝트 만들기…</option>
       </select>
+      {!creating && !current && suggestions && suggestions.length > 0 && (
+        <div role="group" aria-label="추천 프로젝트" className="flex items-center gap-1.5 flex-wrap mt-1.5">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">이 프로젝트일 수 있어요</span>
+          {suggestions.map(p => <FilterChip key={p.id} onClick={() => onChange(p)}>{p.name}</FilterChip>)}
+        </div>
+      )}
       {creating && (
         <div className="flex gap-1.5 mt-1.5">
           <input value={name} onChange={e => setName(e.target.value)} aria-label="새 프로젝트 이름" placeholder="프로젝트 이름"
@@ -3124,7 +3282,7 @@ function sameDraftContent(formA, imgsA, formB, imgsB) {
   try { return norm(formA, imgsA) === norm(formB, imgsB); } catch (e) { return false; }
 }
 
-function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existingProjects, projectList, onCreateProject, existingTags, recentTags, categories, onClose, onSave }) {
+function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existingProjects, projectList, projectHints, onCreateProject, existingTags, recentTags, categories, onClose, onSave }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [keepImages, setKeepImages] = useState([]);
@@ -3278,7 +3436,7 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
       <form onSubmit={handleSubmit} className="wj-modal-pop sm:[animation:wj-drawer-in_.22s_cubic-bezier(.32,.72,0,1)_both] relative w-full sm:w-[42vw] sm:min-w-[560px] sm:max-w-[760px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 sm:border-y-0 sm:border-r-0 shadow-2xl my-0 max-h-[100vh] sm:max-h-none flex flex-col">
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">
-            {initial ? '일지 수정' : prefillNote ? '빠른 기록에서 일지 작성' : '새 일지 작성'}
+            {initial ? '일지 수정' : prefillNote && prefillNote._merged ? `빠른 기록 ${prefillNote._merged.length}건으로 일지 작성` : prefillNote ? '빠른 기록에서 일지 작성' : '새 일지 작성'}
           </h2>
           <IconButton label="닫기" onClick={attemptClose}><X size={16} /></IconButton>
         </div>
@@ -3318,6 +3476,7 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
           </div>
 
           <ProjectPicker value={form.projectId} projectList={projectList || []} onCreateProject={onCreateProject}
+            suggestions={form.projectId ? [] : suggestProjects([form.title, form.overview, ...(form.bullets || []), (form.tags || []).join(' ')].join(' '), projectList || [], projectHints)}
             onChange={pr => setForm(f => ({ ...f, projectId: pr ? pr.id : '', title: pr && !f.title.trim() ? pr.name : f.title }))} />
 
           <div>
@@ -4653,7 +4812,10 @@ function App() {
   const [prefillNote, setPrefillNote] = useState(null); // 빠른 기록에서 "일지로 정리하기"로 열었을 때만 값이 있음
   const [editingNote, setEditingNote] = useState(null); // 빠른 기록 수정 모달 — 업무일지 카드에서 "원본 보기"로도 열 수 있어서 App에서 관리
   const [previewEntryId, setPreviewEntryId] = useState(null); // 업무일지 "확인 먼저" 팝업 — 달력 클릭, 빠른기록의 "일지 보기"에서 사용
-  const [previewNoteId, setPreviewNoteId] = useState(null); // 빠른 기록 "확인 먼저" 팝업 — 업무일지의 "원본 보기"에서 사용
+  const [previewNoteIds, setPreviewNoteIds] = useState([]);
+  const [mergeIds, setMergeIds] = useState([]);       // 합치기 시트에 올린 빠른 기록 id들
+  const [appendOpen, setAppendOpen] = useState(false); // 합치기 → "기존 일지에 덧붙이기" 화면
+  const [mergeDoneKey, setMergeDoneKey] = useState(0); // 합치기가 끝날 때마다 올려서 빠른 기록 탭의 선택 모드를 끝냄 // 빠른 기록 "확인 먼저" 팝업 — 업무일지의 "원본 보기"에서 사용
 
   const notifiedRef = useRef(false);
   const toastIdRef = useRef(0);
@@ -4820,7 +4982,7 @@ function App() {
   const displayNotes = useMemo(() => (archivesLoaded ? quickNotes.concat(archiveNotes) : quickNotes), [quickNotes, archiveNotes, archivesLoaded]);
   // 미리보기 팝업은 id만 들고 있고 내용은 매번 최신 목록에서 찾아옴 — 즐겨찾기 토글 등으로 데이터가 바뀌어도 팝업이 옛 상태를 보여주지 않게 하기 위함
   const previewEntry = useMemo(() => (previewEntryId ? displayEntries.find(e => e.id === previewEntryId) || null : null), [previewEntryId, displayEntries]);
-  const previewNote = useMemo(() => (previewNoteId ? displayNotes.find(n => n.id === previewNoteId) || null : null), [previewNoteId, displayNotes]);
+  const previewNotes = useMemo(() => previewNoteIds.map(id => displayNotes.find(n => n.id === id)).filter(Boolean), [previewNoteIds, displayNotes]);
   const visibleTodos = useMemo(() => todos.filter(t => !pendingDeleteTodoIds.has(t.id)), [todos, pendingDeleteTodoIds]);
   const visibleMemos = useMemo(() => memos.filter(m => !pendingDeleteMemoIds.has(m.id)), [memos, pendingDeleteMemoIds]);
   const hasArchives = !!(cfg && cfg.archives && cfg.archives.length);
@@ -5426,6 +5588,63 @@ function App() {
     }
   };
 
+  /* 빠른 기록 합치기 */
+  const mergeNotes = useMemo(() => mergeIds.map(id => quickNotes.find(n => n.id === id)).filter(n => n && !n.deleted && !n.processed && !n._readonly), [mergeIds, quickNotes]);
+  const mergeText = useMemo(() => buildMergedNoteText(mergeNotes), [mergeNotes]);
+  const projectHints = useMemo(() => {
+    // 프로젝트마다 그 일지들에 자주 붙은 태그(많이 쓴 순 8개) — 글에 이 태그가 들어 있으면 그 프로젝트를 추천하는 단서
+    const counts = {};
+    entries.forEach(e => { if (e.deleted || !e.projectId) return; const m = counts[e.projectId] = counts[e.projectId] || new Map(); (e.tags || []).forEach(t => { const k = tagKey(t); if (k) m.set(k, (m.get(k) || 0) + 1); }); });
+    const out = {};
+    Object.keys(counts).forEach(pid => { out[pid] = [...counts[pid].entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(x => x[0]); });
+    return out;
+  }, [entries]);
+  const startMerge = notes => setMergeIds(notes.map(n => n.id));
+  const closeMerge = () => { setMergeIds([]); setAppendOpen(false); };
+  const handleMergeToNewEntry = () => {
+    if (mergeNotes.length === 0) return;
+    const ids = mergeNotes.map(n => n.id);
+    setPrefillNote({ id: `merge:${ids.length}:${ids[0]}`, text: mergeText, imageRefs: mergedNoteImages(mergeNotes), _repo: activeTag, _readonly: false, _merged: ids });
+    setEditingEntry(null); setPresetProject(null); setModalOpen(true); setTab('entries');
+    setMergeIds([]); setAppendOpen(false);
+  };
+  // 기존 일지 개요 뒤에 덧붙임. 일지 저장 → 빠른 기록 '정리됨' 표시 순서라, 중간에 실패해 다시 눌러도 같은 내용이 두 번 붙지 않게(이미 붙은 기록은 건너뜀) 함
+  const handleAppendNotes = async entry => {
+    const notes = mergeNotes;
+    if (notes.length === 0) return false;
+    const text = buildMergedNoteText(notes);
+    const images = mergedNoteImages(notes);
+    let touched = false;
+    try {
+      const merged = await writeActiveEntries(current => {
+        touched = false;
+        return current.map(e => {
+          if (e.id !== entry.id || e.deleted) return e;
+          touched = true;
+          const have = new Set(e.sourceNoteIds || []);
+          const fresh = notes.filter(n => !have.has(n.id));
+          if (fresh.length === 0) return e;
+          const addText = buildMergedNoteText(fresh);
+          const haveImg = new Set((e.images || []).map(r => JSON.stringify(r)));
+          const addImgs = mergedNoteImages(fresh).filter(r => !haveImg.has(JSON.stringify(r)));
+          return { ...e, overview: (e.overview ? String(e.overview).replace(/\s+$/, '') + '\n\n' : '') + addText, sourceNoteIds: [...(e.sourceNoteIds || []), ...fresh.map(n => n.id)], images: [...(e.images || []), ...addImgs], updatedAt: Date.now() };
+        });
+      }, `빠른 기록 ${notes.length}건을 일지에 덧붙임`);
+      if (!touched) { showToast('덧붙일 일지를 찾지 못했어요. 삭제되었을 수 있어요. 다른 일지를 골라 주세요.'); return false; }
+      setEntries(merged);
+      const idSet = new Set(notes.map(n => n.id));
+      const mergedNotes = await writeActiveNotes(current => current.map(n => (idSet.has(n.id) ? { ...n, processed: true, linkedEntryId: entry.id } : n)), `빠른 기록 ${notes.length}건 정리 완료 처리`);
+      setQuickNotes(mergedNotes);
+      vibrate(20);
+      closeMerge(); setMergeDoneKey(k => k + 1);
+      showToast(`"${entry.title || '(제목 없음)'}" 일지에 빠른 기록 ${notes.length}건을 덧붙였어요.`, { label: '일지 보기', icon: ArrowRight, duration: 6000, onClick: () => { setTab('entries'); setPreviewEntryId(entry.id); } });
+      return true;
+    } catch (err) {
+      showToast('덧붙이기 실패: ' + err.message, () => handleAppendNotes(entry));
+      return false;
+    }
+  };
+
   const handlePromote = note => {
     setPrefillNote(note);
     setEditingEntry(null);
@@ -5950,10 +6169,10 @@ function App() {
   };
   // 업무일지 카드에서 "원본 빠른 기록 보기" — 탭을 옮기지 않고, 지금 보던 화면 위에 팝업으로 바로 보여줌
   const handleViewSourceNote = entry => {
-    const noteId = entry.sourceNoteIds && entry.sourceNoteIds[0];
-    const note = noteId ? displayNotes.find(n => n.id === noteId) : null;
-    if (!note) { showToast('원본 빠른 기록을 찾을 수 없어요. 삭제되었거나, 아직 안 불러온 보관 레포에 있을 수 있어요.'); return; }
-    setPreviewNoteId(note.id); // 바로 수정 화면으로 가지 않고, 먼저 내용만 확인할 수 있게 팝업으로 보여줌
+    const found = (entry.sourceNoteIds || []).map(id => displayNotes.find(n => n.id === id)).filter(Boolean)
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    if (found.length === 0) { showToast('원본 빠른 기록을 찾을 수 없어요. 삭제되었거나, 아직 안 불러온 보관 레포에 있을 수 있어요.'); return; }
+    setPreviewNoteIds(found.map(n => n.id)); // 바로 수정 화면으로 가지 않고, 먼저 내용만 확인할 수 있게 팝업으로 보여줌
   };
 
   const handleSaveEntry = async data => {
@@ -5980,7 +6199,7 @@ function App() {
       const writeCfg = repoCfgFor(cfg, targetRepo);
       const uploadedRefs = await uploadNewImages(writeCfg, newFiles, '업무일지 사진 추가');
       const newEntry = {
-        id: uid(), ...fields, images: [...keepImages, ...uploadedRefs], sourceNoteIds: prefillNote ? [prefillNote.id] : [],
+        id: uid(), ...fields, images: [...keepImages, ...uploadedRefs], sourceNoteIds: prefillNote ? (prefillNote._merged || [prefillNote.id]) : [],
         createdAt: now, updatedAt: now, _repo: targetRepo, _readonly: !!(prefillNote && prefillNote._readonly),
       };
 
@@ -5998,7 +6217,12 @@ function App() {
         setEntries(merged);
       }
 
-      if (prefillNote) {
+      if (prefillNote && prefillNote._merged) {
+        const idSet = new Set(prefillNote._merged);
+        const mergedNotes = await writeActiveNotes(current => current.map(n => (idSet.has(n.id) ? { ...n, processed: true, linkedEntryId: newEntry.id } : n)), `빠른 기록 ${idSet.size}건 정리 완료 처리`);
+        setQuickNotes(mergedNotes);
+        setMergeDoneKey(k => k + 1);
+      } else if (prefillNote) {
         await mutateNote(prefillNote, n => ({ ...n, processed: true, linkedEntryId: newEntry.id }), '빠른 기록 정리 완료 처리');
       }
       closeModal();
@@ -6131,7 +6355,7 @@ function App() {
             </div>
           ) : (
           <React.Fragment>
-          {tab === 'quick' && <QuickCaptureTab cfg={cfg} notes={displayNotes} phrases={phrases} editingNote={editingNote} onEditNote={setEditingNote} onAdd={handleAddNote} onDelete={handleDeleteNote} onBulkDelete={handleBulkDeleteNotes} onRestore={handleRestoreNote} onPermanentDelete={handlePermanentDeleteNote} onEditSave={handleEditNoteSave} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} uploading={uploading} savingEdit={savingNoteEdit} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} />}
+          {tab === 'quick' && <QuickCaptureTab cfg={cfg} notes={displayNotes} phrases={phrases} editingNote={editingNote} onEditNote={setEditingNote} onAdd={handleAddNote} onDelete={handleDeleteNote} onBulkDelete={handleBulkDeleteNotes} onRestore={handleRestoreNote} onPermanentDelete={handlePermanentDeleteNote} onEditSave={handleEditNoteSave} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} uploading={uploading} savingEdit={savingNoteEdit} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} onMerge={startMerge} mergeDoneKey={mergeDoneKey} />}
           {tab === 'todos' && <TodoTab todos={visibleTodos} onAdd={handleAddTodo} onToggle={handleToggleTodo} onDelete={handleDeleteTodo} onEdit={handleEditTodo} onClearDone={handleClearDoneTodos} onBulkComplete={handleBulkCompleteTodos} onBulkDelete={handleBulkDeleteTodos}
             memos={visibleMemos} onAddMemo={handleAddMemo} onEditMemo={handleEditMemo} onDeleteMemo={handleDeleteMemo} />}
           {tab === 'entries' && <EntriesTab cfg={cfg} entries={displayEntries} notes={displayNotes} categories={allCategories} categoryMap={allCategoryMap} onOpenNew={openNewEntry} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onBulkDelete={handleBulkDeleteEntries} onBulkFavorite={handleBulkFavoriteEntries} onBulkField={handleBulkFieldEntries} onRestore={handleRestoreEntry} onPermanentDelete={handlePermanentDeleteEntry} onViewSource={handleViewSourceNote} onPreviewEntry={entry => setPreviewEntryId(entry.id)} hasArchives={hasArchives} archivesLoaded={archivesLoaded} archiveLoading={archiveLoading} onLoadArchives={loadArchives} projectRecords={projects} onCreateProject={handleCreateProject} onUpdateProject={handleUpdateProject} onDeleteProject={handleDeleteProject} onWriteForProject={openNewEntryForProject} onPromoteTitle={handlePromoteTitle} />}
@@ -6185,12 +6409,15 @@ function App() {
         </div>
       </div>
 
-      <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} presetProject={presetProject} cfg={cfg} existingProjects={existingProjects} projectList={buildProjectList(projects, displayEntries)} onCreateProject={handleCreateProject} existingTags={existingTags} recentTags={recentTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
+      <EntryFormModal open={modalOpen} initial={editingEntry} prefillNote={prefillNote} presetProject={presetProject} cfg={cfg} existingProjects={existingProjects} projectList={buildProjectList(projects, displayEntries)} projectHints={projectHints} onCreateProject={handleCreateProject} existingTags={existingTags} recentTags={recentTags} categories={allCategories} onClose={closeModal} onSave={handleSaveEntry} />
       <EntryPreviewModal open={!!previewEntry} entry={previewEntry} cfg={cfg} categoryMap={allCategoryMap} onClose={() => setPreviewEntryId(null)} onEdit={openEditEntry} onDelete={handleDeleteEntry} onToggleFavorite={handleToggleFavorite} onViewSource={handleViewSourceNote} />
       {/* 빠른 기록 수정창: 빠른 기록 탭뿐 아니라 업무일지 탭의 "원본 빠른 기록 보기" 팝업에서도 열려야 해서 앱 전체 수준에 둠 */}
       <NoteEditModal open={!!editingNote} note={editingNote} cfg={editingNote ? repoCfgFor(cfg, editingNote._repo) : cfg} onClose={() => setEditingNote(null)}
         onSave={(note, newText, keepImages, newFiles) => { handleEditNoteSave(note, newText, keepImages, newFiles); setEditingNote(null); }} saving={savingNoteEdit} />
-      <NotePreviewModal open={!!previewNote} note={previewNote} cfg={cfg} onClose={() => setPreviewNoteId(null)} onEdit={setEditingNote} onDelete={handleDeleteNoteFromPreview} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} />
+      <NotePreviewModal open={previewNotes.length > 0} notes={previewNotes} cfg={cfg} onClose={() => setPreviewNoteIds([])} onEdit={setEditingNote} onDelete={handleDeleteNoteFromPreview} onPromote={handlePromote} onViewEntry={handleViewLinkedEntry} />
+      <MergeNotesSheet open={mergeNotes.length > 0 && !appendOpen} notes={mergeNotes} text={mergeText} onClose={closeMerge} onNew={handleMergeToNewEntry} onAppend={() => setAppendOpen(true)} />
+      <AppendToEntrySheet open={mergeNotes.length > 0 && appendOpen} notes={mergeNotes} text={mergeText} entries={entries} projectMap={projectMap}
+        onClose={closeMerge} onBack={() => setAppendOpen(false)} onConfirm={handleAppendNotes} />
       <Toast toast={toast} onAction={() => { if (toast && toast.action) toast.action.onClick(); }} />
       <GlobalLightbox />
       {sticky && ReactDOM.createPortal(
