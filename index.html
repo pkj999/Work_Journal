@@ -259,7 +259,7 @@ const Upload = mkIcon('upload');
 =========================================================== */
 // 지금 보고 있는 화면이 최신 배포본인지 헷갈릴 때(캐시 문제 등) 설정 탭 맨 아래에서 확인하는 용도.
 // index.html/sw.js를 의미 있게 바꿀 때마다 이 값도 같이 올려주세요.
-const APP_VERSION = 'ver.48 · 2026.10.28';
+const APP_VERSION = 'ver.49 · 2026.11.03';
 const CONFIG_KEY = 'workjournal.ghconfig.v1';
 const THEME_KEY = 'workjournal.theme.v1';
 const PATH_ENTRIES = 'data/entries.json';
@@ -1943,7 +1943,7 @@ function QuickNoteCard({ cfg, note, leaving, onEdit, onDelete, onPromote, onView
    QuickNoteCard를 그대로 재사용해서 만들었기 때문에, 그 안에 이미 있는 수정 아이콘을 누르면
    그때 이 팝업을 닫고 실제 수정 화면(NoteEditModal)을 연다. 업무일지 카드의 "원본 빠른 기록 보기"에서 사용. */
 /* ===========================================================
-   빠른 기록 합치기 — 빠른 기록 여러 건을 새 일지 하나로 합치거나, 이미 있는 일지 개요 뒤에 덧붙임.
+   빠른 기록 합치기 — 빠른 기록 여러 건을 새 일지 하나로 합치거나, 이미 있는 일지 내용 뒤에 덧붙임.
    원본 빠른 기록은 지워지지 않고 '정리됨'이 되어 일지에서 다시 볼 수 있음.
 =========================================================== */
 // 시간순(오래된 것 위)으로 한 줄씩 이어 붙인 글. 오늘 쓴 것만이면 '14:32', 다른 날이 섞이면 '2026.10.27 (화) 14:32'
@@ -2054,7 +2054,7 @@ function AppendToEntrySheet({ open, notes, text, entries, projectMap, onClose, o
           <React.Fragment>
             <div className="text-[13px] font-medium text-slate-800 dark:text-slate-100 break-words">{picked.title || '(제목 없음)'}</div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">{fmtDateShort(picked.date)}{projectMap[picked.projectId] ? ` · ${projectMap[picked.projectId].name}` : ''}</div>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-1.5 leading-relaxed">개요 끝에 아래 내용을 덧붙여요. 원래 내용은 그대로예요.</p>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-1.5 leading-relaxed">내용 끝에 아래 글을 덧붙여요. 원래 내용은 그대로예요.</p>
             <pre data-testid="append-preview" className="min-h-0 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[13px] font-sans leading-relaxed text-slate-700 dark:text-slate-200">{text}</pre>
             <div className="mt-3.5 flex flex-col gap-2 shrink-0">
               <button type="button" onClick={confirm} disabled={busy}
@@ -3141,7 +3141,7 @@ function EntryCard({ cfg, entry, query, onEdit, onDelete, onToggleFavorite, onVi
             <div className="grid gap-3">
               {entry.overview && (
                 <div>
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">개요</div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">내용</div>
                   <p className={`text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words ${!expanded ? 'line-clamp-2' : ''}`}><HighlightText text={entry.overview} query={query} /></p>
                 </div>
               )}
@@ -3342,8 +3342,8 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
     } else if (prefillNote) {
       // 빠른 기록은 줄바꿈 없이 한 문단으로 쭉 이어 쓴 경우가 많아서, 억지로 줄 단위로 쪼개
       // "주요 성과 및 한 일"(한 줄짜리 입력칸)에 넣으면 오히려 정리하기 더 어려워짐.
-      // 그래서 원문을 그대로 "개요"(여러 줄 보이는 textarea)에 넣어주고, "주요 성과 및 한 일"은
-      // 빈 칸으로 시작해서 개요를 훑어보며 필요한 부분만 직접 항목으로 뽑아 정리하게 함.
+      // 그래서 원문을 그대로 "내용"(overview, 여러 줄 보이는 textarea)에 넣어주고, "주요 성과 및 한 일"은
+      // 빈 칸으로 시작해서 내용을 훑어보며 필요한 부분만 직접 항목으로 뽑아 정리하게 함.
       baseForm = { ...EMPTY_FORM, overview: (prefillNote.text || '').trim(), bullets: [''], links: [] };
       baseImages = prefillNote.imageRefs || [];
     } else {
@@ -3529,7 +3529,7 @@ function EntryFormModal({ open, initial, prefillNote, presetProject, cfg, existi
             <TextAction icon={Plus} onClick={addBullet} className="mt-0.5 -ml-2">항목 추가</TextAction>
           </div>
 
-          <EmphTextarea label={<>개요 <span className="text-slate-500 dark:text-slate-400 font-normal">(어디서 왔는지, 어떤 배경·맥락인지)</span></>} rows={2} value={form.overview} onValueChange={v => setForm(f => ({ ...f, overview: v }))} placeholder="예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등"
+          <EmphTextarea label="내용" rows={2} value={form.overview} onValueChange={v => setForm(f => ({ ...f, overview: v }))} placeholder="예: 사외에서 접수된 불량 건, ○○팀 요청으로 시작됨 등"
             className="w-full px-3 py-2 rounded-lg text-[13px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none" />
 
           {!showDetails ? (
@@ -5090,7 +5090,7 @@ function App() {
       const pushEntryRows = (arr, repoLabel) => {
         arr.forEach(e => entryRows.push({
           날짜: e.date || '', 프로젝트: (projectMap[e.projectId] || {}).name || '', 업무명: e.title || '', 카테고리: e.category || '', 중요도: e.importance || '',
-          개요: e.overview || '', 발생문제: e.problem || '', 해결과정: e.solution || '', 배운점: e.lesson || '',
+          내용: e.overview || '', 발생문제: e.problem || '', 해결과정: e.solution || '', 배운점: e.lesson || '',
           주요성과: (e.bullets || []).filter(Boolean).join(' / '), 태그: (e.tags || []).join(', '),
           즐겨찾기: e.favorite ? 'Y' : '', 휴지통: e.deleted ? 'Y' : '', 저장소: repoLabel,
         }));
@@ -5186,7 +5186,7 @@ function App() {
           category: allCategories.some(c => c.id === category) ? category : '기타',
           importance: IMPORTANCE_LEVELS.some(l => l.id === importance) ? importance : '중',
           problem, solution, lesson: S(row['배운점']),
-          overview: S(row['개요']),
+          overview: S(row['내용']) || S(row['개요']), // 예전 엑셀 파일은 '개요' 칸이라 둘 다 읽음
           bullets: S(row['주요성과']).split(' / ').map(s => s.trim()).filter(Boolean),
           tags: S(row['태그']).split(',').map(s => s.trim()).filter(Boolean),
           favorite: S(row['즐겨찾기']).toUpperCase() === 'Y',
@@ -5676,7 +5676,7 @@ function App() {
     setEditingEntry(null); setPresetProject(null); setModalOpen(true); setTab('entries');
     setMergeIds([]); setAppendOpen(false);
   };
-  // 기존 일지 개요 뒤에 덧붙임. 일지 저장 → 빠른 기록 '정리됨' 표시 순서라, 중간에 실패해 다시 눌러도 같은 내용이 두 번 붙지 않게(이미 붙은 기록은 건너뜀) 함
+  // 기존 일지 내용(overview) 뒤에 덧붙임. 일지 저장 → 빠른 기록 '정리됨' 표시 순서라, 중간에 실패해 다시 눌러도 같은 내용이 두 번 붙지 않게(이미 붙은 기록은 건너뜀) 함
   const handleAppendNotes = async entry => {
     const notes = mergeNotes;
     if (notes.length === 0) return false;
